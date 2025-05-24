@@ -768,10 +768,10 @@ SearchParams::SearchParams(const OptionsDict& options)
       kCpuctAtRoot(options.Get<float>(
           options.Get<bool>(kRootHasOwnCpuctParamsId) ? kCpuctAtRootId
                                                       : kCpuctId)),
-		  kCpuctExponent(options.Get<float>(kCpuctExponentId)),
-			kCpuctExponentAtRoot(options.Get<float>(
-					options.Get<bool>(kRootHasOwnCpuctParamsId) ? kCpuctExponentAtRootId
-																											: kCpuctExponentId)),
+      kCpuctExponent(options.Get<float>(kCpuctExponentId)),
+      kCpuctExponentAtRoot(options.Get<float>(
+          options.Get<bool>(kRootHasOwnCpuctParamsId) ? kCpuctExponentAtRootId
+                                                      : kCpuctExponentId)),
       kCpuctBase(options.Get<float>(kCpuctBaseId)),
       kCpuctBaseAtRoot(options.Get<float>(
           options.Get<bool>(kRootHasOwnCpuctParamsId) ? kCpuctBaseAtRootId
@@ -854,9 +854,6 @@ SearchParams::SearchParams(const OptionsDict& options)
       kCpuctUtilityStdevScale(options.Get<float>(kCpuctUtilityStdevScaleId)),
       kCpuctUtilityStdevPriorWeight(
           options.Get<float>(kCpuctUtilityStdevPriorWeightId)),
-
-	
-    
       kUseVarianceScaling(options.Get<bool>(kUseVarianceScalingId)),
       kMoveRuleBucketing(options.Get<bool>(kMoveRuleBucketingId)),
       kUncertaintyWeightingCap(options.Get<float>(kUncertaintyWeightingCapId)),
@@ -865,42 +862,29 @@ SearchParams::SearchParams(const OptionsDict& options)
       kUncertaintyWeightingExponent(
           options.Get<float>(kUncertaintyWeightingExponentId)),
       kUseUncertaintyWeighting(options.Get<bool>(kUseUncertaintyWeightingId)),
-
-
-      kCpuctUncertaintyMinFactor(options.Get<float>(kCpuctUncertaintyMinFactorId)), 
+      kEasyEvalWeightDecay(options.Get<float>(kEasyEvalWeightDecayId)),
+      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)),
+      kCpuctUncertaintyMinFactor(options.Get<float>(kCpuctUncertaintyMinFactorId)),
       kCpuctUncertaintyMaxFactor(options.Get<float>(kCpuctUncertaintyMaxFactorId)),
       kCpuctUncertaintyMinUncertainty(options.Get<float>(kCpuctUncertaintyMinUncertaintyId)),
       kCpuctUncertaintyMaxUncertainty(options.Get<float>(kCpuctUncertaintyMaxUncertaintyId)),
       kUseCpuctUncertainty(options.Get<bool>(kUseCpuctUncertaintyId)),
       kJustFpuUncertainty(options.Get<bool>(kJustFpuUncertaintyId)),
-
-				
-
-
-
+      kTopPolicyBoost(options.Get<float>(kTopPolicyBoostId)),
+      kTopPolicyNumBoost(options.Get<int>(kTopPolicyNumBoostId)),
+      kTopPolicyTierTwoBoost(options.Get<float>(kTopPolicyTierTwoBoostId)),
+      kTopPolicyTierTwoNumBoost(options.Get<int>(kTopPolicyTierTwoNumBoostId)),
+      kUsePolicyBoosting(options.Get<bool>(kUsePolicyBoostingId)),
+      kPolicyDecayExponent(options.Get<float>(kPolicyDecayExponentId)),
+      kPolicyDecayFactor(options.Get<float>(kPolicyDecayFactorId)),
       kDesperationMultiplier(options.Get<float>(kDesperationMultiplierId)),
       kDesperationLow(options.Get<float>(kDesperationLowId)),
       kDesperationHigh(options.Get<float>(kDesperationHighId)),
       kDesperationPriorWeight(options.Get<float>(kDesperationPriorWeightId)),
       kUseDesperation(options.Get<bool>(kUseDesperationId)),
-
-			kTopPolicyBoost(options.Get<float>(kTopPolicyBoostId)),
-      kTopPolicyNumBoost(options.Get<int>(kTopPolicyNumBoostId)),
-      kTopPolicyTierTwoBoost(options.Get<float>(kTopPolicyTierTwoBoostId)),
-      kTopPolicyTierTwoNumBoost(options.Get<int>(kTopPolicyTierTwoNumBoostId)),
-			kUsePolicyBoosting(options.Get<bool>(kUsePolicyBoostingId)),
-
-		
-
       kUseCorrectionHistory(options.Get<bool>(kUseCorrectionHistoryId)),
       kCorrectionHistoryAlpha(options.Get<float>(kCorrectionHistoryAlphaId)),
       kCorrectionHistoryLambda(options.Get<float>(kCorrectionHistoryLambdaId)),
-      kPolicyDecayExponent(options.Get<float>(kPolicyDecayExponentId)),
-      kPolicyDecayFactor(options.Get<float>(kPolicyDecayFactorId)),
-
-
-      kEasyEvalWeightDecay(options.Get<float>(kEasyEvalWeightDecayId)),
-      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)),
       // Sibling Policy Modulation
       kUseSiblingPolicyModulationEnabled(options.Get<bool>(kUseSiblingPolicyModulation)),
       kSpmQDiffThresholdValue(options.Get<float>(kSpmQDiffThreshold)),

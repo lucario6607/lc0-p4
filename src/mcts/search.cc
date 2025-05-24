@@ -155,14 +155,15 @@ class MEvaluator {
 // ============================================================================
 
 float SiblingPolicyModulator::CalculateEffectivePolicy(const Node* parent,
-                                                       const Node* current_child,
-                                                       float original_policy) const {
+                                                       const Node* current_child, // current_child is used here
+                                                       float original_policy, // original_policy is used here
+                                                       float draw_score) const {
     if (!params_.enabled || !parent || !current_child) {
         return original_policy;
     }
 
     // Analyze sibling statistics
-    SiblingStats stats = AnalyzeSiblingStats(parent, current_child, original_policy);
+    SiblingStats stats = AnalyzeSiblingStats(parent, draw_score); // current_child and original_policy (current_policy) removed
 
     if (!stats.has_sufficient_data) {
         return original_policy; // Not enough data for reliable modulation
@@ -173,8 +174,7 @@ float SiblingPolicyModulator::CalculateEffectivePolicy(const Node* parent,
     bool is_high_policy_move = original_policy >= policy_threshold;
 
     // Calculate modulation factor
-    float modulation_factor = CalculateModulationFactor(stats, original_policy,
-                                                        is_high_policy_move);
+    float modulation_factor = CalculateModulationFactor(stats, is_high_policy_move); // original_policy (current_policy) removed
 
     // Apply modulation with bounds checking
     float effective_policy = original_policy * modulation_factor;
@@ -183,8 +183,9 @@ float SiblingPolicyModulator::CalculateEffectivePolicy(const Node* parent,
 
 SiblingPolicyModulator::SiblingStats
 SiblingPolicyModulator::AnalyzeSiblingStats(const Node* parent,
-                                            const Node* current_child,
-                                            float current_policy) const {
+                                            // const Node* /*current_child*/, // Removed
+                                            // float /*current_policy*/, // Removed
+                                            float draw_score) const {
     SiblingStats stats = {}; // Initialize all fields to zero/false
 
     if (!parent->HasChildren()) {
@@ -203,7 +204,7 @@ SiblingPolicyModulator::AnalyzeSiblingStats(const Node* parent,
             continue;
         }
 
-        float sibling_q = sibling->GetQ(); // Assuming GetQ() gives the Q value
+        float sibling_q = sibling->GetQ(draw_score); // Use draw_score
         float sibling_policy = edge_handle.GetP(); // Assuming GetP() gives the policy
 
         sum_q_all += sibling_q;
@@ -226,7 +227,7 @@ SiblingPolicyModulator::AnalyzeSiblingStats(const Node* parent,
             sum_q_high_policy / count_high_policy : 0.0f;
         stats.avg_q_low_policy_siblings = count_low_policy > 0 ?
             sum_q_low_policy / count_low_policy : 0.0f;
-        stats.parent_q = parent->GetQ(); // Assuming GetQ() on parent is valid
+        stats.parent_q = parent->GetQ(draw_score); // Use draw_score
         stats.high_policy_count = count_high_policy;
         stats.low_policy_count = count_low_policy;
         stats.has_sufficient_data = true;
@@ -236,7 +237,7 @@ SiblingPolicyModulator::AnalyzeSiblingStats(const Node* parent,
 }
 
 float SiblingPolicyModulator::CalculateModulationFactor(const SiblingStats& stats,
-                                                        float current_policy,
+                                                        // float /*current_policy*/, // Removed
                                                         bool is_high_policy_move) const {
     float modulation_factor = 1.0f;
 
@@ -631,7 +632,7 @@ inline float ComputeUncertaintyFactor(const SearchParams& params, float e) {
   return factor;
 }
 
-inline float ComputeStdev(const SearchParams& params, float q, float weight,
+inline float ComputeStdev(const SearchParams& /*params*/, float q, float /*weight*/,
                           float vs) {
   float util_sq_avg = vs;
   const float util_sq = q * q;
@@ -684,7 +685,7 @@ inline float ComputeStdevFactor(const SearchParams& params, Node* node) {
 }
 
 inline float ComputeCpuctFactor(const SearchParams& params, float weight,
-                                float q, float vs, float e, bool is_root_node) {
+                                float q, float vs, float e, bool /*is_root_node*/) {
   const float stdev_factor = params.GetUseVarianceScaling()
                                  ? ComputeStdevFactor(params, q, weight, vs)
                                  : 1.0f;
@@ -2126,8 +2127,19 @@ void SearchWorker::PickNodesToExtendTask(
 
             // Calculate effective policy using sibling modulation
             // Assumes this->sibling_modulator_ exists and is SiblingPolicyModulator*
-            float p_final_for_ucb = this->sibling_modulator_ 
-                                    ? this->sibling_modulator_->CalculateEffectivePolicy(node, child_node_ptr, original_policy_raw) 
+            // Determine draw_score based on the depth of 'node' (parent)
+            // full_path.size() gives the depth of the current_child (child_node_ptr).
+            // So, parent's depth is full_path.size() - 1.
+            // Children are at depth d, parent is at d-1.
+            // is_odd_depth for children is (d % 2 != 0).
+            // Here, 'node' is the parent. Its depth is full_path.size() -1.
+            // The children (child_node_ptr) are at depth full_path.size().
+            // So, is_odd_depth for GetDrawScore should be based on child's depth.
+            const bool is_odd_depth_for_child = (full_path.size() % 2 != 0);
+            const float child_draw_score = search_->GetDrawScore(is_odd_depth_for_child);
+
+            float p_final_for_ucb = this->sibling_modulator_
+                                    ? this->sibling_modulator_->CalculateEffectivePolicy(node, child_node_ptr, original_policy_raw, child_draw_score)
                                     : original_policy_raw;
 
             // Apply policy decay to the (potentially modulated) policy
@@ -2670,7 +2682,7 @@ void SearchWorker::DoBackupUpdateSingleNode(
     ntp_cht_entry = nullptr;
   }
   float ch_lambda = params_.GetCorrectionHistoryLambda();
-  float ch_alpha = params_.GetCorrectionHistoryAlpha();
+  // float ch_alpha = params_.GetCorrectionHistoryAlpha(); // Unused variable
 
 
 

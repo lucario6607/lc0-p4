@@ -714,7 +714,7 @@ static constexpr float m_tolerance = 0.000001f;
 
 #else
 
-  static bool WLDMInvariantsHold(float wl, float d, float m) {
+  static bool WLDMInvariantsHold(float /*wl*/, float /*d*/, float /*m*/) {
 		return true;
 	} 
 

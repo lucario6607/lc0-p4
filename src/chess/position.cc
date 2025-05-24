@@ -169,7 +169,6 @@ uint64_t PositionHistory::HashLast(int positions, int r50_ply) const {
 
 uint64_t PositionHistory::CHHash() const { 
   Position last = Last();
-  const Move last_move = LastMove();
   uint64_t position_hash = last.CHHash();
  // if (last_move) {
 	//	position_hash = HashCat(position_hash, last_move.Hash());

@@ -491,13 +491,21 @@ class LowNode {
   // For non-TT nodes.
   LowNode(const LowNode& p)
       : wl_(p.wl_),
-        v_(p.v_),
+        vs_(p.vs_),
+        // weight_ (default initialized or not in list)
+        d_(p.d_),
+        // children_weight_ (default initialized or not in list)
         hash_(p.hash_),
         ch_hash_(p.ch_hash_),
-        d_(p.d_),
+        // cht_entry_ (default initialized or not in list)
+        // edges_ (initialized in body)
+        // child_ (default initialized)
         m_(p.m_),
-        vs_(p.vs_),
-        e_(p.e_), 
+        v_(p.v_),
+        e_(p.e_),
+        // ch_delta_ (default initialized or not in list)
+        // n_ (default initialized or not in list)
+        // num_parents_ (default initialized or not in list)
         num_edges_(p.num_edges_),
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
@@ -512,13 +520,21 @@ class LowNode {
   // Only used when creating twin low nodes
   LowNode(const LowNode& p, const uint64_t hash)
       : wl_(p.wl_),
-        v_(p.v_),
-        hash_(hash),
-        ch_hash_(p.ch_hash_),
-        d_(p.d_),
-        m_(p.m_),
         vs_(p.vs_),
-        e_(p.e_), 
+        // weight_ (default initialized or not in list)
+        d_(p.d_),
+        // children_weight_ (default initialized or not in list)
+        hash_(hash), // Use the parameter here
+        ch_hash_(p.ch_hash_),
+        // cht_entry_ (default initialized or not in list)
+        // edges_ (initialized in body)
+        // child_ (default initialized)
+        m_(p.m_),
+        v_(p.v_),
+        e_(p.e_),
+        // ch_delta_ (default initialized or not in list)
+        // n_ (default initialized or not in list)
+        // num_parents_ (default initialized or not in list)
         num_edges_(p.num_edges_),
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),

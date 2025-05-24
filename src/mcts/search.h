@@ -65,19 +65,20 @@ public:
         float policy_damp_factor;
         float min_visits_for_modulation;
         
-        ModulationParams(const OptionsDict& options)
-            : enabled(options.Get<bool>(SearchParams::kUseSiblingPolicyModulation)),
-              q_diff_threshold(options.Get<float>(SearchParams::kSpmQDiffThreshold)),
-              policy_boost_factor(options.Get<float>(SearchParams::kSpmPolicyBoostFactor)),
-              policy_damp_factor(options.Get<float>(SearchParams::kSpmPolicyDampFactor)),
-              min_visits_for_modulation(options.Get<float>(SearchParams::kSpmMinVisitsForModulation)) {}
+        // Constructor now takes SearchParams directly
+        ModulationParams(const SearchParams& sp)
+            : enabled(sp.GetUseSiblingPolicyModulation()),
+              q_diff_threshold(sp.GetSpmQDiffThreshold()),
+              policy_boost_factor(sp.GetSpmPolicyBoostFactor()),
+              policy_damp_factor(sp.GetSpmPolicyDampFactor()),
+              min_visits_for_modulation(sp.GetSpmMinVisitsForModulation()) {}
     };
 
     explicit SiblingPolicyModulator(const ModulationParams& params) : params_(params) {}
     
     // Calculate effective policy for a move considering sibling performance
     float CalculateEffectivePolicy(const Node* parent, const Node* current_child, 
-                                   float original_policy) const;
+                                   float original_policy, float draw_score) const;
 
 private:
     struct SiblingStats {
@@ -91,11 +92,11 @@ private:
     };
     
     // Analyze sibling node statistics for modulation decisions
-    SiblingStats AnalyzeSiblingStats(const Node* parent, const Node* current_child,
-                                     float current_policy) const;
+    SiblingStats AnalyzeSiblingStats(const Node* parent, float draw_score) const;
+    // SiblingStats stats = AnalyzeSiblingStats(parent, draw_score); // Corrected: current_child and current_policy removed
     
     // Calculate modulation factor based on sibling analysis
-    float CalculateModulationFactor(const SiblingStats& stats, float current_policy,
+    float CalculateModulationFactor(const SiblingStats& stats,
                                     bool is_high_policy_move) const;
     
     // Determine policy threshold for high vs low policy classification
@@ -274,10 +275,14 @@ class SearchWorker {
   SearchWorker(Search* search, const SearchParams& params, int id)
       : search_(search),
         history_(search_->played_history_),
-        params_(params),
+        params_(params), // SearchParams object
         moves_left_support_(search_->network_->GetCapabilities().moves_left !=
                             pblczero::NetworkFormat::MOVES_LEFT_NONE) {
     search_->network_->InitThread(id);
+    SiblingPolicyModulator::ModulationParams modulation_params(params_);
+    if (modulation_params.enabled) {
+        sibling_modulator_ = std::make_unique<SiblingPolicyModulator>(modulation_params);
+    }
     for (int i = 0; i < params.GetTaskWorkersPerSearchWorker(); i++) {
       task_workspaces_.emplace_back();
       task_threads_.emplace_back([this, i]() { this->RunTasks(i); });
@@ -403,7 +408,7 @@ class SearchWorker {
       return NodeToProcess(path, history);
     }
 
-    void SetR50Bounds(NodeTree* dag) {}
+    void SetR50Bounds(NodeTree* /*dag*/) {}
 
     // Method to allow NodeToProcess to conform as a 'Computation'. Only safe
     // to call if is_cache_hit is true in the multigather path.
@@ -546,6 +551,7 @@ class SearchWorker {
   const bool moves_left_support_;
   IterationStats iteration_stats_;
   StoppersHints latest_time_manager_hints_;
+  std::unique_ptr<SiblingPolicyModulator> sibling_modulator_;
 
   // Multigather task related fields.
 
