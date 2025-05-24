@@ -555,7 +555,33 @@ const OptionId SearchParams::kCorrectionHistoryAlphaId{
 const OptionId SearchParams::kCorrectionHistoryLambdaId{
     "correction-history-lambda", "CorrectionHistoryLambda",
     "Strength of correction history adjustment. [0,1]"};
-	
+
+// Sibling Policy Modulation options
+const OptionId SearchParams::kUseSiblingPolicyModulation{
+    "use-sibling-policy-modulation", "UseSiblingPolicyModulation",
+    "Enable dynamic policy modulation based on sibling node Q-values to correct "
+    "for misleading policy priors faster than visit counts alone."};
+
+const OptionId SearchParams::kSpmQDiffThreshold{
+    "spm-q-diff-threshold", "SpmQDiffThreshold",
+    "Q-value difference threshold to trigger sibling policy modulation. "
+    "Higher values make the system less sensitive to Q-value differences."};
+
+const OptionId SearchParams::kSpmPolicyBoostFactor{
+    "spm-policy-boost-factor", "SpmPolicyBoostFactor",
+    "Factor to boost effective policy of siblings when high-policy moves underperform. "
+    "Values > 1.0 increase exploration of alternatives."};
+
+const OptionId SearchParams::kSpmPolicyDampFactor{
+    "spm-policy-damp-factor", "SpmPolicyDampFactor",
+    "Factor to dampen effective policy of underperforming high-policy move groups. "
+    "Values < 1.0 reduce exploration of disappointing high-policy moves."};
+
+const OptionId SearchParams::kSpmMinVisitsForModulation{
+    "spm-min-visits-for-modulation", "SpmMinVisitsForModulation",
+    "Minimum number of visits required for sibling nodes before applying modulation. "
+    "Prevents premature modulation based on insufficient data."};
+
 
 void SearchParams::Populate(OptionsParser* options) {
   // Here the uci optimized defaults" are set.
@@ -705,6 +731,13 @@ void SearchParams::Populate(OptionsParser* options) {
 
 
   options->Add<BoolOption>(kSearchSpinBackoffId) = false;
+
+  // Sibling Policy Modulation options
+  options->Add<BoolOption>(kUseSiblingPolicyModulation) = false;
+  options->Add<FloatOption>(kSpmQDiffThreshold, 0.0f, 1.0f) = 0.1f;
+  options->Add<FloatOption>(kSpmPolicyBoostFactor, 1.0f, 3.0f) = 1.2f;
+  options->Add<FloatOption>(kSpmPolicyDampFactor, 0.1f, 1.0f) = 0.8f;
+  options->Add<FloatOption>(kSpmMinVisitsForModulation, 1.0f, 50.0f) = 5.0f;
 
   options->HideOption(kNoiseEpsilonId);
   options->HideOption(kNoiseAlphaId);
@@ -867,6 +900,12 @@ SearchParams::SearchParams(const OptionsDict& options)
 
 
       kEasyEvalWeightDecay(options.Get<float>(kEasyEvalWeightDecayId)),
-      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)) {}
+      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)),
+      // Sibling Policy Modulation
+      kUseSiblingPolicyModulationEnabled(options.Get<bool>(kUseSiblingPolicyModulation)),
+      kSpmQDiffThresholdValue(options.Get<float>(kSpmQDiffThreshold)),
+      kSpmPolicyBoostFactorValue(options.Get<float>(kSpmPolicyBoostFactor)),
+      kSpmPolicyDampFactorValue(options.Get<float>(kSpmPolicyDampFactor)),
+      kSpmMinVisitsForModulationValue(options.Get<float>(kSpmMinVisitsForModulation)) {}
 
 }  // namespace lczero

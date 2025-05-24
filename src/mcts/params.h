@@ -230,6 +230,13 @@ class SearchParams {
   float GetCorrectionHistoryAlpha() const { return kCorrectionHistoryAlpha; }
   float GetCorrectionHistoryLambda() const { return kCorrectionHistoryLambda; }
 
+  // Sibling Policy Modulation Getters
+  bool GetUseSiblingPolicyModulationEnabled() const { return kUseSiblingPolicyModulationEnabled; }
+  float GetSpmQDiffThresholdValue() const { return kSpmQDiffThresholdValue; }
+  float GetSpmPolicyBoostFactorValue() const { return kSpmPolicyBoostFactorValue; }
+  float GetSpmPolicyDampFactorValue() const { return kSpmPolicyDampFactorValue; }
+  float GetSpmMinVisitsForModulationValue() const { return kSpmMinVisitsForModulationValue; }
+
 
   // Search parameter IDs.
   static const OptionId kMiniBatchSizeId;
@@ -348,7 +355,12 @@ class SearchParams {
   static const OptionId kCorrectionHistoryAlphaId;
   static const OptionId kCorrectionHistoryLambdaId;
 
-
+  // Sibling Policy Modulation options
+  static const OptionId kUseSiblingPolicyModulation;
+  static const OptionId kSpmQDiffThreshold;
+  static const OptionId kSpmPolicyBoostFactor;
+  static const OptionId kSpmPolicyDampFactor;
+  static const OptionId kSpmMinVisitsForModulation;
 
  private:
   const OptionsDict& options_;
@@ -450,7 +462,12 @@ class SearchParams {
   const float kCorrectionHistoryAlpha;
   const float kCorrectionHistoryLambda;
 
-
+  // Sibling Policy Modulation member variables
+  const bool kUseSiblingPolicyModulationEnabled;
+  const float kSpmQDiffThresholdValue;
+  const float kSpmPolicyBoostFactorValue;
+  const float kSpmPolicyDampFactorValue;
+  const float kSpmMinVisitsForModulationValue;
 };
 
 }  // namespace lczero

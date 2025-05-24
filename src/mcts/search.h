@@ -48,6 +48,62 @@
 
 namespace lczero {
 
+// Forward declaration
+// class Node; // Already included via mcts/node.h
+// class OptionsDict; // Already included via mcts/params.h
+
+// ============================================================================
+// Sibling Policy Modulation class declaration
+// ============================================================================
+
+class SiblingPolicyModulator {
+public:
+    struct ModulationParams {
+        bool enabled;
+        float q_diff_threshold;
+        float policy_boost_factor;
+        float policy_damp_factor;
+        float min_visits_for_modulation;
+        
+        ModulationParams(const OptionsDict& options)
+            : enabled(options.Get<bool>(SearchParams::kUseSiblingPolicyModulation)),
+              q_diff_threshold(options.Get<float>(SearchParams::kSpmQDiffThreshold)),
+              policy_boost_factor(options.Get<float>(SearchParams::kSpmPolicyBoostFactor)),
+              policy_damp_factor(options.Get<float>(SearchParams::kSpmPolicyDampFactor)),
+              min_visits_for_modulation(options.Get<float>(SearchParams::kSpmMinVisitsForModulation)) {}
+    };
+
+    explicit SiblingPolicyModulator(const ModulationParams& params) : params_(params) {}
+    
+    // Calculate effective policy for a move considering sibling performance
+    float CalculateEffectivePolicy(const Node* parent, const Node* current_child, 
+                                   float original_policy) const;
+
+private:
+    struct SiblingStats {
+        float avg_q_high_policy_siblings;
+        float avg_q_low_policy_siblings; 
+        float avg_q_all_siblings;
+        float parent_q;
+        int high_policy_count;
+        int low_policy_count;
+        bool has_sufficient_data;
+    };
+    
+    // Analyze sibling node statistics for modulation decisions
+    SiblingStats AnalyzeSiblingStats(const Node* parent, const Node* current_child,
+                                     float current_policy) const;
+    
+    // Calculate modulation factor based on sibling analysis
+    float CalculateModulationFactor(const SiblingStats& stats, float current_policy,
+                                    bool is_high_policy_move) const;
+    
+    // Determine policy threshold for high vs low policy classification
+    float GetPolicyThreshold(const Node* parent) const;
+    
+    const ModulationParams params_;
+};
+
 typedef std::vector<std::tuple<Node*, int, int>> BackupPath;
 
 class Search {

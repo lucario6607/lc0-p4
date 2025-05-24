@@ -37,6 +37,8 @@
 #include <memory>
 #include <sstream>
 #include <thread>
+#include <functional> // For std::greater
+#include <limits>    // For std::numeric_limits
 
 #include "mcts/node.h"
 #include "utils/fastmath.h"
@@ -147,6 +149,177 @@ class MEvaluator {
 };
 
 }  // namespace
+
+// ============================================================================
+// Sibling Policy Modulation implementation
+// ============================================================================
+
+float SiblingPolicyModulator::CalculateEffectivePolicy(const Node* parent,
+                                                       const Node* current_child,
+                                                       float original_policy) const {
+    if (!params_.enabled || !parent || !current_child) {
+        return original_policy;
+    }
+
+    // Analyze sibling statistics
+    SiblingStats stats = AnalyzeSiblingStats(parent, current_child, original_policy);
+
+    if (!stats.has_sufficient_data) {
+        return original_policy; // Not enough data for reliable modulation
+    }
+
+    // Determine if this is a high or low policy move
+    float policy_threshold = GetPolicyThreshold(parent);
+    bool is_high_policy_move = original_policy >= policy_threshold;
+
+    // Calculate modulation factor
+    float modulation_factor = CalculateModulationFactor(stats, original_policy,
+                                                        is_high_policy_move);
+
+    // Apply modulation with bounds checking
+    float effective_policy = original_policy * modulation_factor;
+    return std::max(0.001f, std::min(1.0f, effective_policy)); // Clamp to reasonable bounds
+}
+
+SiblingPolicyModulator::SiblingStats
+SiblingPolicyModulator::AnalyzeSiblingStats(const Node* parent,
+                                            const Node* current_child,
+                                            float current_policy) const {
+    SiblingStats stats = {}; // Initialize all fields to zero/false
+
+    if (!parent->HasChildren()) {
+        return stats;
+    }
+
+    float policy_threshold = GetPolicyThreshold(parent);
+    float sum_q_high_policy = 0.0f, sum_q_low_policy = 0.0f, sum_q_all = 0.0f;
+    int count_high_policy = 0, count_low_policy = 0, total_visited_siblings = 0;
+
+    // Analyze all sibling nodes (including current if it meets visit criteria)
+    for (const auto& edge_handle : parent->Edges()) {
+        const Node* sibling = edge_handle.node(); // EdgeHandle to Node*
+        // Skip if sibling doesn't exist or has insufficient visits
+        if (!sibling || sibling->GetN() < params_.min_visits_for_modulation) {
+            continue;
+        }
+
+        float sibling_q = sibling->GetQ(); // Assuming GetQ() gives the Q value
+        float sibling_policy = edge_handle.GetP(); // Assuming GetP() gives the policy
+
+        sum_q_all += sibling_q;
+        total_visited_siblings++;
+
+        if (sibling_policy >= policy_threshold) {
+            sum_q_high_policy += sibling_q;
+            count_high_policy++;
+        } else {
+            sum_q_low_policy += sibling_q;
+            count_low_policy++;
+        }
+    }
+
+    // Calculate averages and parent Q
+    // Need at least 2 siblings with sufficient visits for meaningful comparison
+    if (total_visited_siblings >= 2) {
+        stats.avg_q_all_siblings = sum_q_all / total_visited_siblings;
+        stats.avg_q_high_policy_siblings = count_high_policy > 0 ?
+            sum_q_high_policy / count_high_policy : 0.0f;
+        stats.avg_q_low_policy_siblings = count_low_policy > 0 ?
+            sum_q_low_policy / count_low_policy : 0.0f;
+        stats.parent_q = parent->GetQ(); // Assuming GetQ() on parent is valid
+        stats.high_policy_count = count_high_policy;
+        stats.low_policy_count = count_low_policy;
+        stats.has_sufficient_data = true;
+    }
+
+    return stats;
+}
+
+float SiblingPolicyModulator::CalculateModulationFactor(const SiblingStats& stats,
+                                                        float current_policy,
+                                                        bool is_high_policy_move) const {
+    float modulation_factor = 1.0f;
+
+    if (is_high_policy_move) {
+        // For high-policy moves: dampen if they're underperforming relative to parent
+        // Ensure there are high policy siblings to compare against.
+        if (stats.high_policy_count > 0) {
+            float q_diff = stats.avg_q_high_policy_siblings - stats.parent_q;
+            if (q_diff < -params_.q_diff_threshold) {
+                // High-policy moves are underperforming, apply dampening
+                float dampening_strength = std::min(1.0f, std::abs(q_diff) / params_.q_diff_threshold);
+                // policy_damp_factor is < 1.0, so (params_.policy_damp_factor - 1.0f) is negative
+                modulation_factor = 1.0f + dampening_strength * (params_.policy_damp_factor - 1.0f);
+            }
+        }
+    } else { // This is a low-policy move
+        // For low-policy moves: boost if high-policy siblings are underperforming
+        // Ensure there are both high and low policy siblings for this comparison
+        if (stats.high_policy_count > 0 && stats.low_policy_count > 0) {
+            float high_vs_low_diff = stats.avg_q_high_policy_siblings - stats.avg_q_low_policy_siblings;
+
+            // If high-policy moves are performing worse than low-policy moves
+            if (high_vs_low_diff < -params_.q_diff_threshold) {
+                float boost_strength = std::min(1.0f, std::abs(high_vs_low_diff) / params_.q_diff_threshold);
+                // policy_boost_factor is > 1.0, so (params_.policy_boost_factor - 1.0f) is positive
+                modulation_factor = 1.0f + boost_strength * (params_.policy_boost_factor - 1.0f);
+            }
+        }
+
+        // Additional boost if high-policy moves underperform parent significantly
+        // Ensure there are high policy siblings to compare against.
+        if (stats.high_policy_count > 0) {
+            float high_vs_parent_diff = stats.avg_q_high_policy_siblings - stats.parent_q;
+            if (high_vs_parent_diff < -params_.q_diff_threshold) {
+                // This additional boost is additive to any previous boost from high_vs_low_diff
+                float additional_boost_strength = std::min(1.0f, std::abs(high_vs_parent_diff) / params_.q_diff_threshold);
+                // The issue implies a small additive boost, e.g., * 0.1f, max 0.2f
+                // Let's use a structure like: additional_boost_value * (params_.policy_boost_factor - 1.0f)
+                // Or simpler: just add a small factor. The issue used:
+                // float additional_boost = std::min(0.2f, std::abs(high_vs_parent_diff) / params_.q_diff_threshold * 0.1f);
+                // modulation_factor += additional_boost;
+                // Let's refine this based on the idea of policy_boost_factor
+                float additional_boost_increment = additional_boost_strength * (params_.policy_boost_factor - 1.0f) * 0.25f; // Scaled down boost
+                modulation_factor += std::min(0.2f, additional_boost_increment); // Cap the additional boost
+            }
+        }
+    }
+
+    return modulation_factor;
+}
+
+float SiblingPolicyModulator::GetPolicyThreshold(const Node* parent) const {
+    if (!parent->HasChildren()) {
+        return 0.1f; // Default threshold if no children
+    }
+
+    std::vector<float> policies;
+    for (const auto& edge_handle : parent->Edges()) {
+        // Only consider edges that lead to actual nodes for policy calculation
+        if (edge_handle.node()) { // Check if node pointer is valid
+             policies.push_back(edge_handle.GetP());
+        }
+    }
+
+    if (policies.empty()) {
+        return 0.1f; // Default if no valid policies found
+    }
+
+    std::sort(policies.begin(), policies.end(), std::greater<float>()); // Sort descending
+
+    // Use top 25% as "high policy" if we have many moves, otherwise use median
+    size_t threshold_index;
+    if (policies.size() > 8) {
+        threshold_index = policies.size() / 4; // Top 25%
+    } else {
+        threshold_index = policies.size() / 2; // Median
+    }
+
+    // Ensure index is valid, especially for small number of policies
+    threshold_index = std::min(threshold_index, policies.size() - 1);
+    return policies[threshold_index];
+}
+
 
 Search::Search(NodeTree* dag, Network* network,
                std::unique_ptr<UciResponder> uci_responder,
@@ -1948,35 +2121,37 @@ void SearchWorker::PickNodesToExtendTask(
           float weightstarted = current_weightstarted[idx];
           const float util = current_util[idx];
           if (idx > cache_filled_idx) {
-            float p = cur_iters[idx].GetP();
+            float original_policy_raw = cur_iters[idx].GetP();
+            const Node* child_node_ptr = cur_iters[idx].node(); // Get child node for modulator
 
-            p = ComputePolicyDecay(policy_decay_factor, p);
-            // a small hack to reduce policy on bad moves
-            if (p < 0.01f) p /= 3;
-            //if (cur_iters[idx].GetWL(0.0f) < -0.995) p /= 5;
-            //else if (cur_iters[idx].GetWL(0.0f) < -0.99) p /= 3;
-            //else if (cur_iters[idx].GetWL(0.0f) < -0.95) p /= 2;
+            // Calculate effective policy using sibling modulation
+            // Assumes this->sibling_modulator_ exists and is SiblingPolicyModulator*
+            float p_final_for_ucb = this->sibling_modulator_ 
+                                    ? this->sibling_modulator_->CalculateEffectivePolicy(node, child_node_ptr, original_policy_raw) 
+                                    : original_policy_raw;
 
+            // Apply policy decay to the (potentially modulated) policy
+            p_final_for_ucb = ComputePolicyDecay(policy_decay_factor, p_final_for_ucb);
 
+            // a small hack to reduce policy on bad moves (existing logic)
+            if (p_final_for_ucb < 0.01f) p_final_for_ucb /= 3;
 
-            // only boost visited nodes
-						if (visited[idx]) {
-              if (util >= min_policy_boost_util_t1) {
-                p = std::max(p, policy_boost_t1);
-              }
-              if (util >= min_policy_boost_util_t2) {
-                p = std::max(p, policy_boost_t2);
-              }
-
-              if (cur_iters[idx].GetWL(-999.0f) > -node->GetWL() &&
-                  cur_iters[idx].GetWeight() < node->GetWeight() / 3)
-                p *= 1.4;
+            // Policy boosting logic (applied to p_final_for_ucb)
+            if (visited[idx]) {
+                if (util >= min_policy_boost_util_t1) { // util is current_util[idx]
+                    p_final_for_ucb = std::max(p_final_for_ucb, policy_boost_t1);
+                }
+                if (util >= min_policy_boost_util_t2) { // util is current_util[idx]
+                    p_final_for_ucb = std::max(p_final_for_ucb, policy_boost_t2);
+                }
+                // Further conditional boost (existing logic)
+                if (cur_iters[idx].GetWL(-999.0f) > -node->GetWL() && cur_iters[idx].GetWeight() < node->GetWeight() / 3) {
+                    p_final_for_ucb *= 1.4;
+                }
             }
-
-
             
             current_score[idx] =
-              p * puct_mult / (1 + weightstarted) + util;
+              p_final_for_ucb * puct_mult / (1 + weightstarted) + util;
             cache_filled_idx++;
           }
           if (is_root_node) {
