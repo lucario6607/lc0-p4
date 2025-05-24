@@ -67,11 +67,11 @@ public:
         
         // Constructor now takes SearchParams directly
         ModulationParams(const SearchParams& sp)
-            : enabled(sp.kUseSiblingPolicyModulationEnabled), // Corrected
-              q_diff_threshold(sp.kSpmQDiffThresholdValue), // Corrected
-              policy_boost_factor(sp.kSpmPolicyBoostFactorValue), // Corrected
-              policy_damp_factor(sp.kSpmPolicyDampFactorValue), // Corrected
-              min_visits_for_modulation(sp.kSpmMinVisitsForModulationValue) {} // Corrected
+            : enabled(sp.GetUseSiblingPolicyModulationEnabled()), // Corrected: Use getter
+              q_diff_threshold(sp.GetSpmQDiffThresholdValue()), // Corrected: Use getter
+              policy_boost_factor(sp.GetSpmPolicyBoostFactorValue()), // Corrected: Use getter
+              policy_damp_factor(sp.GetSpmPolicyDampFactorValue()), // Corrected: Use getter
+              min_visits_for_modulation(sp.GetSpmMinVisitsForModulationValue()) {} // Corrected: Use getter
     };
 
     explicit SiblingPolicyModulator(const ModulationParams& params) : params_(params) {}
