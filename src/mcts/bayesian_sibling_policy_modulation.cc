@@ -52,7 +52,7 @@ float BayesianSiblingPolicyModulator::CalculateBayesianConfidenceModulation(
     const Node* parent, const Edge& edge) const {
     
     BayesianStats* stats = GetOrCreateBayesianStats(edge);
-    if (!stats || stats->update_count < 2) return 1.0f;
+    if (!stats || stats->update_count < 2) return 1.0f; // No stats, no modulation.
     
     float confidence_interval_width = stats->GetConfidenceInterval();
     float uncertainty = stats->GetUncertaintyMeasure();
@@ -62,13 +62,41 @@ float BayesianSiblingPolicyModulator::CalculateBayesianConfidenceModulation(
         return 1.0f + uncertainty * params_.uncertainty_exploration_weight;
     }
     
+    // Find the Q-value of the node corresponding to the given edge.
+    float current_q_from_node = 0.0f; // Default Q-value.
+    bool node_found_and_visited = false;
+    // Need to iterate using Node::ConstIterator as this member function is const.
+    for (Node::ConstIterator it = parent->Edges().begin(); it != parent->Edges().end(); ++it) {
+        if (it.edge() == &edge) {
+            // it.node() gives Node*. it.GetN() checks visits of this Node.
+            // it.GetQ(default_q, draw_score) gets Q from this Node.
+            if (it.node() != nullptr && it.GetN() > 0) {
+                 // Using 0.0f for default_q and 0.0f for draw_score.
+                 // The draw_score might need to be configurable via SearchParams later.
+                current_q_from_node = it.GetQ(0.0f, 0.0f); 
+                node_found_and_visited = true;
+            }
+            break;
+        }
+    }
+
+    if (!node_found_and_visited) {
+        // If we couldn't find the node or it has no visits,
+        // we can't reliably use its Q for dampening.
+        return 1.0f; // No modulation.
+    }
+    
     // If we're confident this move is poor, dampen it
-    float current_q = edge.GetQ(0.0f);
-    float mean_estimated_q = stats->GetMean() * 2.0f - 1.0f; // Convert [0,1] back to [-1,1]
+    // float current_q = edge.GetQ(0.0f); // OLD LINE
+    float current_q = current_q_from_node; // NEW LINE: Use Q from the actual node
+    
+    float mean_estimated_q = stats->GetMean() * 2.0f - 1.0f; // Convert [0,1] from stats to [-1,1]
+    
+    // Ensure current_q (from node, typically [-1,1]) and mean_estimated_q (converted to [-1,1]) are comparable.
     
     if (confidence_interval_width < params_.credible_interval_threshold * 0.5f && 
         mean_estimated_q < current_q - params_.q_diff_threshold &&
-        stats->update_count >= params_.min_confidence_for_dampening * 2) {
+        stats->update_count >= static_cast<int>(params_.min_confidence_for_dampening * 2)) { // Ensure comparison is int vs float
         return params_.policy_damp_factor;
     }
     
@@ -87,9 +115,18 @@ float BayesianSiblingPolicyModulator::CalculateUncertaintyExplorationBonus(
     float avg_sibling_uncertainty = 0.0f;
     int sibling_count = 0;
     
-    for (const auto& sibling_edge : parent->Edges()) { // Renamed inner loop variable
-        if (&sibling_edge != &edge && sibling_edge.GetN() >= params_.min_visits_for_modulation) {
-            BayesianStats* sibling_stats = GetOrCreateBayesianStats(sibling_edge);
+    // Iterate over sibling edges using Node::ConstIterator
+    for (Node::ConstIterator sibling_it = parent->Edges().begin(); 
+         sibling_it != parent->Edges().end(); 
+         ++sibling_it) {
+        
+        // sibling_it is an EdgeAndNode. sibling_it.edge() gives Edge*.
+        // &edge is the address of the input Edge object.
+        if (sibling_it.edge() != &edge && 
+            sibling_it.GetN() >= static_cast<uint32_t>(params_.min_visits_for_modulation)) {
+            
+            // Get stats for the sibling edge. sibling_it.edge() is Edge*, so dereference for const Edge&.
+            BayesianStats* sibling_stats = GetOrCreateBayesianStats(*sibling_it.edge());
             if (sibling_stats) {
                 avg_sibling_uncertainty += sibling_stats->GetUncertaintyMeasure();
                 sibling_count++;
@@ -97,13 +134,14 @@ float BayesianSiblingPolicyModulator::CalculateUncertaintyExplorationBonus(
         }
     }
     
-    if (sibling_count == 0) return 1.0f;
+    if (sibling_count == 0) return 1.0f; // No valid siblings to compare against.
     avg_sibling_uncertainty /= sibling_count;
     
     // If this move is more uncertain than siblings, give it an exploration bonus
-    if (uncertainty > avg_sibling_uncertainty * 1.2f) {
+    if (uncertainty > avg_sibling_uncertainty * 1.2f) { // 1.2f is an arbitrary factor, consider parameterizing
         float bonus = 1.0f + (uncertainty - avg_sibling_uncertainty) * params_.uncertainty_exploration_weight;
-        return std::min(bonus, params_.policy_boost_factor);
+        // Ensure policy_boost_factor is positive and > 1 for actual boosting
+        return std::min(bonus, params_.policy_boost_factor > 1.0f ? params_.policy_boost_factor : 1.5f ); 
     }
     
     return 1.0f;
@@ -113,15 +151,40 @@ float BayesianSiblingPolicyModulator::CalculateThompsonSamplingModulation(
     const Node* parent, const Edge& edge) const {
     
     BayesianStats* stats = GetOrCreateBayesianStats(edge);
-    if (!stats || stats->update_count < 2) return 1.0f;
+    // If no stats or not enough data for Thompson sampling, return neutral factor.
+    if (!stats || stats->update_count < 2) return 1.0f; 
     
-    float thompson_sample = stats->SampleThompson();
-    float current_q_normalized = (edge.GetQ(0.0f) + 1.0f) / 2.0f; // Convert to [0,1]
+    float thompson_sample = stats->SampleThompson(); // This is in [0,1] range
+
+    // Find the Q-value of the node corresponding to the given edge.
+    float current_q_from_node_minus1_to_1 = 0.0f; // Default Q-value.
+    bool node_found_and_visited = false;
+    // Need to iterate using Node::ConstIterator as this member function is const.
+    for (Node::ConstIterator it = parent->Edges().begin(); it != parent->Edges().end(); ++it) {
+        if (it.edge() == &edge) {
+            if (it.node() != nullptr && it.GetN() > 0) {
+                // Using 0.0f for default_q and 0.0f for draw_score.
+                current_q_from_node_minus1_to_1 = it.GetQ(0.0f, 0.0f); 
+                node_found_and_visited = true;
+            }
+            break;
+        }
+    }
+
+    if (!node_found_and_visited) {
+        // If node not found or not visited, cannot get its Q value.
+        return 1.0f; // Neutral modulation.
+    }
+    
+    // Normalize current Q from [-1,1] to [0,1] for comparison with Thompson sample.
+    float current_q_normalized = (current_q_from_node_minus1_to_1 + 1.0f) / 2.0f;
     
     // If Thompson sample suggests this move is better than current estimate, boost it
-    if (thompson_sample > current_q_normalized + 0.1f) {
-        float boost = 1.0f + (thompson_sample - current_q_normalized) * 0.5f;
-        return std::min(boost, params_.policy_boost_factor);
+    // The 0.1f threshold is arbitrary, consider parameterizing.
+    if (thompson_sample > current_q_normalized + 0.1f) { 
+        float boost = 1.0f + (thompson_sample - current_q_normalized) * 0.5f; // 0.5f factor also arbitrary
+        // Ensure policy_boost_factor is positive and > 1.0 for actual boosting, otherwise use a default.
+        return std::min(boost, params_.policy_boost_factor > 1.0f ? params_.policy_boost_factor : 1.5f);
     }
     
     return 1.0f;
@@ -177,41 +240,55 @@ std::vector<BayesianSiblingPolicyModulator::BayesianSiblingGroup>
 BayesianSiblingPolicyModulator::GroupSiblingsByBayesianUncertainty(const Node* parent) const {
     
     std::vector<BayesianSiblingGroup> groups;
-    BayesianSiblingGroup high_uncertainty_group, low_uncertainty_group;
+    BayesianSiblingGroup high_uncertainty_group; // Gets default initialized members (avg_q=0, etc.)
+    BayesianSiblingGroup low_uncertainty_group;
     
-    for (const auto& current_edge : parent->Edges()) { // Renamed inner loop variable
-        if (current_edge.GetN() < params_.min_visits_for_modulation) continue;
+    float high_unc_q_sum = 0.0f;
+    int high_unc_member_count = 0; // Renamed to avoid conflict with BayesianStats::update_count
+    float low_unc_q_sum = 0.0f;
+    int low_unc_member_count = 0;
+
+    for (Node::ConstIterator it = parent->Edges().begin(); it != parent->Edges().end(); ++it) {
+        if (it.GetN() < static_cast<uint32_t>(params_.min_visits_for_modulation)) continue;
         
-        BayesianStats* stats = GetOrCreateBayesianStats(current_edge);
-        float uncertainty = stats ? stats->GetUncertaintyMeasure() : 1.0f;
+        BayesianStats* stats = GetOrCreateBayesianStats(*it.edge()); // Pass const Edge&
+        float uncertainty = stats ? stats->GetUncertaintyMeasure() : 1.0f; // Default to max uncertainty if no stats
         
+        float current_q = 0.0f; // Default Q
+        if (it.node() != nullptr && it.GetN() > 0) { // Check node exists and has visits
+            current_q = it.GetQ(0.0f, 0.0f); // Get Q from Node, assume default_q=0, draw_score=0
+        }
+
         if (uncertainty > params_.credible_interval_threshold) {
-            high_uncertainty_group.edges.push_back(&current_edge);
-            high_uncertainty_group.total_policy += current_edge.GetP();
-            high_uncertainty_group.total_visits += current_edge.GetN();
+            high_uncertainty_group.edges.push_back(it.edge()); // it.edge() is const Edge*
+            high_uncertainty_group.total_policy += it.GetP();
+            high_uncertainty_group.total_visits += it.GetN();
             high_uncertainty_group.uncertainty_score += uncertainty;
+            high_unc_q_sum += current_q;
+            high_unc_member_count++;
         } else {
-            low_uncertainty_group.edges.push_back(&current_edge);
-            low_uncertainty_group.total_policy += current_edge.GetP();
-            low_uncertainty_group.total_visits += current_edge.GetN();
+            low_uncertainty_group.edges.push_back(it.edge()); // it.edge() is const Edge*
+            low_uncertainty_group.total_policy += it.GetP();
+            low_uncertainty_group.total_visits += it.GetN();
             low_uncertainty_group.uncertainty_score += uncertainty;
+            low_unc_q_sum += current_q;
+            low_unc_member_count++;
         }
     }
     
-    // Calculate average Q and normalize uncertainty scores
-    auto finalize_group = [](BayesianSiblingGroup& group) {
-        if (group.edges.empty()) return;
-        
-        float q_sum = 0.0f;
-        for (const auto* edge_ptr : group.edges) { // Corrected: Iterate over pointers
-            q_sum += edge_ptr->GetQ(0.0f);
-        }
-        group.avg_q = q_sum / group.edges.size();
-        group.uncertainty_score /= group.edges.size();
-    };
-    
-    finalize_group(high_uncertainty_group);
-    finalize_group(low_uncertainty_group);
+    if (high_unc_member_count > 0) {
+        high_uncertainty_group.avg_q = high_unc_q_sum / high_unc_member_count;
+        high_uncertainty_group.uncertainty_score /= high_unc_member_count; // Normalize score
+    }
+    // else avg_q remains 0.0f as initialized, uncertainty_score also 0.0f
+
+    if (low_unc_member_count > 0) {
+        low_uncertainty_group.avg_q = low_unc_q_sum / low_unc_member_count;
+        low_uncertainty_group.uncertainty_score /= low_unc_member_count; // Normalize score
+    }
+    // else avg_q remains 0.0f, uncertainty_score also 0.0f
+
+    // The old finalize_group lambda is no longer needed as its logic is integrated.
     
     if (!high_uncertainty_group.edges.empty()) groups.push_back(high_uncertainty_group);
     if (!low_uncertainty_group.edges.empty()) groups.push_back(low_uncertainty_group);
@@ -220,18 +297,39 @@ BayesianSiblingPolicyModulator::GroupSiblingsByBayesianUncertainty(const Node* p
 }
 
 bool BayesianSiblingPolicyModulator::ShouldApplyBayesianModulation(
-    const Node* parent, const Edge& edge) const {
+    const Node* parent, const Edge& edge_param) const { // Renamed edge to edge_param
     
-    if (edge.GetN() < params_.min_visits_for_modulation) return false;
+    // Find the node corresponding to edge_param and check its visits.
+    bool current_edge_node_has_enough_visits = false;
+    // Node::ConstIterator current_edge_it = parent->Edges().end(); // Not strictly needed to store
+
+    for (Node::ConstIterator it = parent->Edges().begin(); it != parent->Edges().end(); ++it) {
+        if (it.edge() == &edge_param) {
+            // current_edge_it = it; // Found the iterator for the current edge
+            if (it.GetN() >= static_cast<uint32_t>(params_.min_visits_for_modulation)) {
+                current_edge_node_has_enough_visits = true;
+            }
+            break; 
+        }
+    }
+
+    if (!current_edge_node_has_enough_visits) {
+        return false; // Current edge's node doesn't have enough visits or not found.
+    }
     
-    // Need at least one other sibling with Bayesian stats
+    // Need at least one OTHER sibling with Bayesian stats and enough visits
     int siblings_with_stats = 0;
-    for (const auto& sibling_edge : parent->Edges()) { // Renamed inner loop variable
-        if (sibling_edge.GetN() >= params_.min_visits_for_modulation) {
-            // Avoid checking the edge against itself if it's part of parent->Edges()
-            if (&sibling_edge == &edge) continue; 
-            
-            BayesianStats* stats = GetOrCreateBayesianStats(sibling_edge);
+    for (Node::ConstIterator sibling_it = parent->Edges().begin(); 
+         sibling_it != parent->Edges().end(); 
+         ++sibling_it) {
+        
+        // Skip the original edge itself
+        if (sibling_it.edge() == &edge_param) {
+            continue;
+        }
+        
+        if (sibling_it.GetN() >= static_cast<uint32_t>(params_.min_visits_for_modulation)) {
+            BayesianStats* stats = GetOrCreateBayesianStats(*sibling_it.edge()); // Pass const Edge&
             if (stats && stats->update_count > 0) {
                 siblings_with_stats++;
             }
@@ -242,7 +340,7 @@ bool BayesianSiblingPolicyModulator::ShouldApplyBayesianModulation(
 }
 
 void BayesianSiblingPolicyModulator::UpdateBayesianStats(
-    const Node* parent, const Edge& edge, float outcome) {
+    const Node* /*parent*/, const Edge& edge, float outcome) { // Marked parent as unused
     
     BayesianStats* stats = GetOrCreateBayesianStats(edge);
     if (stats) {
@@ -255,21 +353,20 @@ void BayesianSiblingPolicyModulator::UpdateBayesianStats(
     }
 }
 
-void BayesianSiblingPolicyModulator::UpdateModulationStats(const Node* parent) {
+void BayesianSiblingPolicyModulator::UpdateModulationStats(const Node* /*parent*/) { // Marked parent as unused
     // Clear caches periodically
-    if (cached_bayesian_groups_.size() > 1000) { // Example threshold
+    if (cached_bayesian_groups_.size() > 1000) {
         cached_bayesian_groups_.clear();
-        // cached_bayesian_variance_.clear(); // This was in the .h but not used in .cc, consider removing if not needed
+        cached_bayesian_variance_.clear();
     }
     
     // Decay old Bayesian statistics to prevent staleness
     for (auto& pair : edge_bayesian_stats_) {
         BayesianStats& stats = pair.second;
-        // Consider if this decay is always desired, or configurable
-        // if (stats.update_count > 100) { // Original condition
-        //    stats.alpha *= 0.99f; 
-        //    stats.beta *= 0.99f;
-        // }
+        if (stats.update_count > 100) { // Only decay if there are enough updates
+            stats.alpha *= 0.99f; // Use a fixed decay or make it a parameter
+            stats.beta *= 0.99f;
+        }
     }
 }
 
@@ -315,33 +412,38 @@ float BayesianSiblingPolicyModulator::EstimateProbabilityOfSuperiority(
 float BayesianSiblingPolicyModulator::CalculateBayesianQVariance(const Node* parent) const {
     if (!parent || parent->GetNumEdges() == 0) return 0.0f;
 
-    float total_weighted_visits = 0; // Using a more descriptive name
-    float sum_weighted_q = 0;
-    float sum_weighted_q_squared = 0;
-    int valid_edges_count = 0; // Count of edges with valid stats
+    float total_visits_weight = 0.0f; // Using 'weight' in name to clarify it's for weighted average
+    float mean_q_sum_weighted = 0.0f;
+    float mean_q_sq_sum_weighted = 0.0f;
+    int count = 0;
 
-    for (const auto& edge : parent->Edges()) {
-        BayesianStats* stats = GetOrCreateBayesianStats(edge);
-        // Ensure stats exist and have been updated at least once
-        if (stats && stats->update_count > 0) { 
-            float mean_q = stats->GetMean(); // Q is in [0,1] from BayesianStats
-            // Weight by update_count from BayesianStats for consistency, or edge.GetN()
-            float weight = static_cast<float>(stats->update_count); 
+    for (Node::ConstIterator it = parent->Edges().begin(); it != parent->Edges().end(); ++it) {
+        // Get Bayesian stats for the current edge
+        BayesianStats* stats = GetOrCreateBayesianStats(*it.edge()); // Pass const Edge&
 
-            sum_weighted_q += mean_q * weight;
-            sum_weighted_q_squared += mean_q * mean_q * weight;
-            total_weighted_visits += weight;
-            valid_edges_count++;
+        if (stats && stats->update_count > 0) {
+            float mean_q_for_edge = stats->GetMean(); // Q is already in [0,1] range from BayesianStats
+            
+            // Use actual visits from the node for weighting, if available and makes sense.
+            // Or, could use stats->update_count if that's more representative of the stat's reliability.
+            // Let's stick to node visits as per the original placeholder's intent.
+            float visits_for_weighting = static_cast<float>(it.GetN());
+
+            if (visits_for_weighting > 0) { // Only consider edges/nodes that have been visited
+                mean_q_sum_weighted += mean_q_for_edge * visits_for_weighting;
+                mean_q_sq_sum_weighted += mean_q_for_edge * mean_q_for_edge * visits_for_weighting;
+                total_visits_weight += visits_for_weighting;
+                count++;
+            }
         }
     }
 
-    if (total_weighted_visits < 1e-6f || valid_edges_count < 2) return 0.0f;
+    if (total_visits_weight < 1e-6f || count < 2) return 0.0f; // Not enough data or not enough distinct visited children
 
-    float overall_mean_q = sum_weighted_q / total_weighted_visits;
-    float variance = (sum_weighted_q_squared / total_weighted_visits) - (overall_mean_q * overall_mean_q);
+    float overall_mean_q = mean_q_sum_weighted / total_visits_weight;
+    float variance = (mean_q_sq_sum_weighted / total_visits_weight) - (overall_mean_q * overall_mean_q);
     
-    // Ensure variance is not negative due to floating point inaccuracies
-    return std::max(0.0f, variance); 
+    return std::max(0.0f, variance); // Variance cannot be negative
 }
 
 float BayesianSiblingPolicyModulator::CalculateCredibleIntervalOverlap(
