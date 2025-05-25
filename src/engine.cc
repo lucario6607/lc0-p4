@@ -101,6 +101,15 @@ void EngineController::PopulateOptions(OptionsParser* options) {
   options->Add<IntOption>(kNNCacheSizeId, 0, 999999999) = 2000;
   SearchParams::Populate(options);
 
+    // Bayesian Sibling Policy Modulation Options
+    options->Add<BoolOption>(OptionId{"use-bayesian-sibling-policy-modulation", "UseBayesianSiblingPolicyModulation", "Enable Bayesian sibling policy modulation."}) = false;
+    options->Add<FloatOption>(OptionId{"bspm-uncertainty-exploration-weight", "BSPMUncertaintyExplorationWeight", "Weight for uncertainty exploration bonus.", '\0'}, 0.0f, 1.0f) = 0.4f;
+    options->Add<FloatOption>(OptionId{"bspm-bayesian-update-decay", "BSPMBayesianUpdateDecay", "Decay rate for Bayesian updates.", '\0'}, 0.8f, 1.0f) = 0.95f;
+    options->Add<FloatOption>(OptionId{"bspm-min-confidence-for-dampening", "BSPMMinConfidenceForDampening", "Minimum confidence to dampen moves.", '\0'}, 0.5f, 1.0f) = 0.8f;
+    options->Add<BoolOption>(OptionId{"bspm-use-thompson-sampling", "BSPMUseThompsonSampling", "Use Thompson sampling for exploration."}) = false;
+    options->Add<FloatOption>(OptionId{"bspm-credible-interval-threshold", "BSPMCredibleIntervalThreshold", "Threshold for high uncertainty.", '\0'}, 0.1f, 0.8f) = 0.3f;
+    options->Add<FloatOption>(OptionId{"bspm-bayesian-prior-strength", "BSPMBayesianPriorStrength", "Strength of Bayesian priors.", '\0'}, 0.5f, 10.0f) = 2.0f;
+
   ConfigFile::PopulateOptions(options);
   if (is_simple) {
     options->HideAllOptions();

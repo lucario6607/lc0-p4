@@ -166,6 +166,7 @@ files += [
   'src/mcts/node.cc',
   'src/mcts/params.cc',
   'src/mcts/search.cc',
+  'src/mcts/bayesian_sibling_policy_modulation.cc',
   'src/mcts/stoppers/alphazero.cc',
   'src/mcts/stoppers/common.cc',
   'src/mcts/stoppers/factory.cc',

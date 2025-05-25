@@ -41,6 +41,7 @@
 #include "mcts/node.h"
 #include "mcts/params.h"
 #include "mcts/stoppers/timemgr.h"
+#include "bayesian_sibling_policy_modulation.h"
 #include "neural/cache.h"
 #include "syzygy/syzygy.h"
 #include "utils/logging.h"
