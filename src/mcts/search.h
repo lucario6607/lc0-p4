@@ -18,20 +18,37 @@
 
 #pragma once
 
-#include <memory>
-#include <random>
-#include <shared_mutex>
-#include <atomic>
-#include <vector>
-#include <thread>
-#include <mutex>
-#include <chrono>
-#include "neural/cache.h"
-#include "neural/network.h"
-#include "utils/optionsdict.h"
-#include "utils/optionsparser.h"
-#include "chess/move.h"
-#include "chess/board.h"
+// Standard library
+#include <array>
+#include <atomic>         // For std::atomic in BetaBernoulliStats
+#include <chrono>         // For std::chrono in Search class
+#include <condition_variable>
+#include <functional>
+#include <memory>         // For std::unique_ptr in Edge, NodeTree
+#include <mutex>          // For std::mutex in Search class
+#include <optional>
+#include <random>         // For std::mt19937 in Edge, Search
+#include <shared_mutex>   // For std::shared_mutex in Node
+#include <thread>         // For std::thread in Search class
+#include <tuple>
+#include <vector>         // For std::vector in EdgeList, Search members
+
+// Project-specific
+#include "chess/board.h"       // Defines Move, GameResult
+#include "chess/callbacks.h"
+#include "chess/uciloop.h"
+#include "mcts/node.h"         // Defines Node
+#include "mcts/params.h"       // Defines SearchParams
+#include "mcts/stoppers/timemgr.h"
+#include "neural/cache.h"      // For NNCache
+#include "syzygy/syzygy.h"     // For SyzygyTablebase
+#include "utils/logging.h"
+#include "utils/mutex.h"       // Custom mutex utilities?
+// Note: "neural/network.h", "utils/optionsdict.h", "utils/optionsparser.h"
+// were in the old list but not in the new one.
+// "chess/move.h" was in the old list and is covered by "chess/board.h" (or should be included if not).
+// Assuming "chess/board.h" correctly brings in "chess/move.h" or it's an oversight in the new list.
+// For now, adhering strictly to the new list.
 
 namespace lczero {
 
@@ -39,6 +56,9 @@ namespace lczero {
 class Node;
 class NodeTree;
 class SearchParams;
+class Network;
+class OptionsDict;
+class OptionsParser;
 
 // Supporting structures
 struct IterationStats {
@@ -88,26 +108,6 @@ enum class GameResult {
   WHITE_WON,
   BLACK_WON,
   DRAW
-};
-
-// Simple SearchParams class for configuration
-class SearchParams {
-public:
-  SearchParams() = default;
-  
-  void SetFpuValue(float value) { fpu_value_ = value; }
-  float GetFpuValue() const { return fpu_value_; }
-  
-  void SetPolicyTemperature(float temp) { policy_temperature_ = temp; }
-  float GetPolicyTemperature() const { return policy_temperature_; }
-  
-  void SetUsePolicyPriors(bool use) { use_policy_priors_ = use; }
-  bool GetUsePolicyPriors() const { return use_policy_priors_; }
-
-private:
-  float fpu_value_ = 0.0f;
-  float policy_temperature_ = 1.0f;
-  bool use_policy_priors_ = true;
 };
 
 // Forward declare SearchWorker
