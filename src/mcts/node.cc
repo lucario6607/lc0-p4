@@ -39,77 +39,124 @@
 #include <sstream>
 #include <thread>
 #include <unordered_set>
+#include <random>   // ADDED
+#include <vector>   // ADDED
+#include <iomanip>  // ADDED
+#include "mcts/search.h" // ADDED
 
 #include "utils/exception.h"
 #include "utils/hashcat.h"
 
 namespace lczero {
 
+namespace {
+// Beta-Bernoulli Thompson Sampling parameters (mirrored for Node methods)
+// TODO: Consider moving these to a shared config or passing via SearchParams.
+const float kDefaultFpuValue = 0.0; 
+const float kPolicyTemperature = 1.0;
+const bool kUsePolicyPriors = true;
+}
+
+// Node Method Implementations
+
+// Thompson Sampling edge selection implementation
+uint16_t Node::SelectChildThompsonSampling(std::mt19937& rng, float fpu_value) const {
+  if (edges_.empty()) return 0;
+
+  float best_sample = -1.0;
+  uint16_t best_idx = 0;
+
+  for (uint16_t i = 0; i < edges_.size(); ++i) {
+    const auto& edge = edges_[i];
+    const auto& stats = edge.GetBetaStats(); // Edge and BetaBernoulliStats from search.h
+
+    float sample;
+
+    if (stats.GetVisits() == 0) {
+      // First Play Urgency: combine policy prior with FPU value
+      if (kUsePolicyPriors) { // Constant from anonymous namespace above
+        sample = edge.GetP() + fpu_value;
+      } else {
+        sample = 0.5 + fpu_value;
+      }
+    } else {
+      // Sample from Beta posterior
+      sample = stats.SampleBeta(rng);
+    }
+
+    if (sample > best_sample) {
+      best_sample = sample;
+      best_idx = i;
+    }
+  }
+  return best_idx;
+}
+
+// Legacy UCB selection for compatibility/comparison
+uint16_t Node::SelectChildToExtend(float cpuct, float fpu_value, bool fpu_absolute) const {
+  // Fall back to Thompson Sampling
+  thread_local std::mt19937 rng{std::random_device{}()}; // Requires <random>
+  return SelectChildThompsonSampling(rng, fpu_value);
+}
+
+void Node::BackupValue(float value) {
+  // In the new model, n_ is part of Node from search.h
+  // The user's code for this was: ++n_;
+  // Let's confirm Node in search.h has n_
+  // Node from previous search.h: uint32_t n_ = 0;
+  // So, this is fine.
+  ++n_; 
+}
+
+void Node::BackupValueToAncestors(float value) {
+  Node* node = this;
+  bool flip_sign = true;
+
+  while (node != nullptr) {
+    node->BackupValue(flip_sign ? -value : value); // Calls the Node::BackupValue above
+    if (node->parent_ != nullptr) { // parent_ from Node in search.h
+      // index_ from Node in search.h
+      // GetEdge from Node in search.h
+      // GetBetaStats from Edge in search.h
+      // Update from BetaBernoulliStats in search.h
+      auto& edge = node->parent_->GetEdge(node->index_); 
+      edge.GetBetaStats().Update(flip_sign ? -value : value);
+    }
+    node = node->parent_;
+    flip_sign = !flip_sign;
+  }
+}
+
+void Node::CreateEdges(const std::vector<Move>& moves) { // Move from chess/move.h (via search.h or node.h)
+  edges_.reserve(moves.size()); // edges_ from Node in search.h
+  for (const auto& move : moves) {
+    edges_.emplace_back(); // Default constructor for Edge
+    edges_.back().SetMove(move); // SetMove from Edge in search.h
+  }
+}
+
+void Node::InitializeBetaPriors(const std::vector<float>& policy_probs) {
+  if (!kUsePolicyPriors || policy_probs.size() != edges_.size()) { // kUsePolicyPriors from anon namespace
+    return;
+  }
+  for (size_t i = 0; i < edges_.size(); ++i) {
+    if (policy_probs[i] > 0.0) {
+      auto& stats = edges_[i].GetBetaStats();
+      float prior_strength = kPolicyTemperature; // kPolicyTemperature from anon namespace
+      float policy_prob = policy_probs[i];
+      // alpha and beta are std::atomic<double> in BetaBernoulliStats
+      stats.alpha.store(1.0 + policy_prob * prior_strength);
+      stats.beta.store(1.0 + (1.0 - policy_prob) * prior_strength);
+    }
+  }
+}
+// End of new/replaced Node methods except DebugString (handled separately)
+
 /////////////////////////////////////////////////////////////////////////
 // Edge
 /////////////////////////////////////////////////////////////////////////
 
-Move Edge::GetMove(bool as_opponent) const {
-  if (!as_opponent) return move_;
-  Move m = move_;
-  m.Mirror();
-  return m;
-}
-
-// Policy priors (P) are stored in a compressed 16-bit format.
-//
-// Source values are 32-bit floats:
-// * bit 31 is sign (zero means positive)
-// * bit 30 is sign of exponent (zero means nonpositive)
-// * bits 29..23 are value bits of exponent
-// * bits 22..0 are significand bits (plus a "virtual" always-on bit: s ∈ [1,2))
-// The number is then sign * 2^exponent * significand, usually.
-// See https://www.h-schmidt.net/FloatConverter/IEEE754.html for details.
-//
-// In compressed 16-bit value we store bits 27..12:
-// * bit 31 is always off as values are always >= 0
-// * bit 30 is always off as values are always < 2
-// * bits 29..28 are only off for values < 4.6566e-10, assume they are always on
-// * bits 11..0 are for higher precision, they are dropped leaving only 11 bits
-//     of precision
-//
-// When converting to compressed format, bit 11 is added to in order to make it
-// a rounding rather than truncation.
-//
-// Out of 65556 possible values, 2047 are outside of [0,1] interval (they are in
-// interval (1,2)). This is fine because the values in [0,1] are skewed towards
-// 0, which is also exactly how the components of policy tend to behave (since
-// they add up to 1).
-
-// If the two assumed-on exponent bits (3<<28) are in fact off, the input is
-// rounded up to the smallest value with them on. We accomplish this by
-// subtracting the two bits from the input and checking for a negative result
-// (the subtraction works despite crossing from exponent to significand). This
-// is combined with the round-to-nearest addition (1<<11) into one op.
-void Edge::SetP(float p) {
-  assert(0.0f <= p && p <= 1.0f);
-  constexpr int32_t roundings = (1 << 11) - (3 << 28);
-  int32_t tmp;
-  std::memcpy(&tmp, &p, sizeof(float));
-  tmp += roundings;
-  p_ = (tmp < 0) ? 0 : static_cast<uint16_t>(tmp >> 12);
-}
-
-float Edge::GetP() const {
-  // Reshift into place and set the assumed-set exponent bits.
-  uint32_t tmp = (static_cast<uint32_t>(p_) << 12) | (3 << 28);
-  float ret;
-  std::memcpy(&ret, &tmp, sizeof(uint32_t));
-  return ret;
-}
-
 bool Edge::GetCheck() const { return move_.check(); }
-
-std::string Edge::DebugString() const {
-  std::ostringstream oss;
-  oss << "Move: " << move_.as_string() << " p_: " << p_ << " GetP: " << GetP();
-  return oss.str();
-}
 
 std::unique_ptr<Edge[]> Edge::FromMovelist(const MoveList& moves) {
   std::unique_ptr<Edge[]> edges = std::make_unique<Edge[]>(moves.size());
@@ -200,15 +247,26 @@ uint64_t Node::GetHash() const {
 const Edge& LowNode::GetEdgeAt(uint16_t index) const { return edges_[index]; }
 
 std::string Node::DebugString() const {
-  std::ostringstream oss;
-  oss << " <Node> This:" << this << " LowNode:" << low_node_
-      << " Index:" << index_ << " Move:" << GetMove().as_string()
-      << " Sibling:" << sibling_.get() << " P:" << GetP() << " WL:" << wl_
-      << " D:" << d_ << " M:" << m_ << " N:" << n_ << " N_:" << n_in_flight_
-      << " Term:" << static_cast<int>(terminal_type_)
-      << " Bounds:" << static_cast<int>(lower_bound_) - 2 << ","
-      << static_cast<int>(upper_bound_) - 2;
-  return oss.str();
+  std::ostringstream out; // Requires <sstream>
+  // n_ from Node in search.h
+  out << " N: " << n_ << " [";
+  for (uint16_t i = 0; i < edges_.size(); ++i) {
+    const auto& edge = edges_[i];
+    const auto& stats = edge.GetBetaStats();
+    if (i > 0) out << ", ";
+    // GetMove from Edge, as_string from Move
+    // GetVisits, GetMeanValue, GetBetaMean, GetUncertainty from BetaBernoulliStats
+    // GetP from Edge
+    // Requires <iomanip> for std::fixed, std::setprecision
+    out << edge.GetMove().as_string() 
+        << " (V:" << stats.GetVisits()
+        << " Q:" << std::fixed << std::setprecision(3) << stats.GetMeanValue()
+        << " β:" << std::fixed << std::setprecision(3) << stats.GetBetaMean()
+        << " U:" << std::fixed << std::setprecision(3) << stats.GetUncertainty()
+        << " P:" << std::fixed << std::setprecision(3) << edge.GetP() << ")";
+  }
+  out << "]";
+  return out.str();
 }
 
 std::string LowNode::DebugString() const {
@@ -750,198 +808,7 @@ std::string EdgeAndNode::DebugString() const {
 // NodeTree
 /////////////////////////////////////////////////////////////////////////
 
-void NodeTree::MakeMove(Move move) {
-  if (HeadPosition().IsBlackToMove()) move.Mirror();
-  const auto& board = HeadPosition().GetBoard();
-  auto hash = GetHistoryHash(history_);
-  move = board.GetModernMove(move);  // TODO: Why convert here?
-
-  // Find edge for @move, if it exists.
-  Node* new_head = nullptr;
-  while (new_head == nullptr) {
-    for (auto& n : current_head_->Edges()) {
-      if (board.IsSameMove(n.GetMove(), move)) {
-        new_head = n.GetOrSpawnNode(current_head_);
-        // Ensure head is not terminal, so search can extend or visit children
-        // of "terminal" positions, e.g., WDL hits, converted terminals, 3-fold
-        // draw.
-        if (new_head->IsTerminal()) new_head->MakeNotTerminal();
-        break;
-      }
-    }
-
-    if (new_head != nullptr) break;
-
-    // Current head node (if any) is non-TT, does not have a matching edge and
-    // will be removed by NonTTMaintenance later.
-    current_head_->UnsetLowNode();
-
-    // Check TT first, then create, if necessary.
-    auto tt_iter = tt_.find(hash);
-    if (tt_iter != tt_.end()) {
-      current_head_->SetLowNode(tt_iter->second.get());
-      if (current_head_->IsTerminal()) current_head_->MakeNotTerminal();
-    } else {
-      non_tt_.emplace_back(std::make_unique<LowNode>(hash, MoveList({move}),
-                                                     static_cast<uint16_t>(0)));
-      current_head_->SetLowNode(non_tt_.back().get());
-    }
-  }
-
-  // Remove edges that will not be needed any more.
-  current_head_->ReleaseChildrenExceptOne(new_head, &gc_queue_);
-  new_head = current_head_->GetChild();
-
-  // Move damaged node from TT to non-TT to avoid reuse.
-  // It can have TT parents, until they get garbage collected.
-  if (current_head_->IsTT()) {
-    auto tt_iter = tt_.find(current_head_->GetHash());
-    tt_iter->second->ClearTT();
-    non_tt_.emplace_back(std::move(tt_iter->second));
-    tt_.erase(tt_iter);
-  }
-
-  current_head_ = new_head;
-
-  history_.Append(move);
-  moves_.push_back(move);
-}
-
-void NodeTree::TrimTreeAtHead() {
-  current_head_->Trim(&gc_queue_);
-  // Free unused non-TT low nodes.
-  NonTTMaintenance();
-}
-
-bool NodeTree::ResetToPosition(const std::string& starting_fen,
-                               const std::vector<Move>& moves) {
-  ChessBoard starting_board;
-  int no_capture_ply;
-  int full_moves;
-  starting_board.SetFromFen(starting_fen, &no_capture_ply, &full_moves);
-  if (gamebegin_node_ &&
-      (history_.Starting().GetBoard() != starting_board ||
-       history_.Starting().GetRule50Ply() != no_capture_ply)) {
-    // Completely different position.
-    DeallocateTree();
-  }
-
-  if (!gamebegin_node_) {
-    gamebegin_node_ = std::make_unique<Node>(0);
-  }
-
-  history_.Reset(starting_board, no_capture_ply,
-                 full_moves * 2 - (starting_board.flipped() ? 1 : 2));
-  moves_.clear();
-
-  Node* old_head = current_head_;
-  current_head_ = gamebegin_node_.get();
-  bool seen_old_head = (gamebegin_node_.get() == old_head);
-  for (const auto& move : moves) {
-    MakeMove(move);
-    if (old_head == current_head_) seen_old_head = true;
-  }
-
-  // Remove any non-TT nodes that were not reused.
-  NonTTMaintenance();
-
-  // MakeMove guarantees that no siblings exist; but, if we didn't see the old
-  // head, it means we might have a position that was an ancestor to a
-  // previously searched position, which means that the current_head_ might
-  // retain old n_ and q_ (etc) data, even though its old children were
-  // previously trimmed; we need to reset current_head_ in that case.
-  if (!seen_old_head) TrimTreeAtHead();
-  return seen_old_head;
-}
-
-void NodeTree::DeallocateTree() {
-  gamebegin_node_.reset();
-  current_head_ = nullptr;
-  // Free all nodes.
-  // There may be non-TT children of TT nodes that were not garbage collected
-  // fast enough.
-  NonTTMaintenance();
-  TTClear();
-  non_tt_.clear();
-  gc_queue_.clear();
-}
-
-LowNode* NodeTree::TTFind(uint64_t hash) {
-  auto tt_iter = tt_.find(hash);
-  if (tt_iter != tt_.end()) {
-    return tt_iter->second.get();
-  } else {
-    return nullptr;
-  }
-}
-
-CorrHistEntry* NodeTree::CHTGetOrCreate(uint64_t hash) {
-  auto [cht_iter, is_cht_miss] = cht_.insert({hash, std::make_unique<CorrHistEntry>()});
-  return cht_iter->second.get();
-}
-
-std::pair<LowNode*, bool> NodeTree::TTGetOrCreate(uint64_t hash) {
-  auto [tt_iter, is_tt_miss] =
-      tt_.insert({hash, std::make_unique<LowNode>(hash)});
-  return {tt_iter->second.get(), is_tt_miss};
-}
-
-std::pair<LowNode*, bool> NodeTree::TTGetOrCreate(const LowNode& p, uint64_t hash) {
-  auto [tt_iter, is_tt_miss] =
-      tt_.insert({hash, std::make_unique<LowNode>(p, hash)});
-  return {tt_iter->second.get(), is_tt_miss};
-}
-
-void NodeTree::TTMaintenance() { TTGCSome(0); }
-
-void NodeTree::TTClear() {
-  // Make sure destructors don't fail.
-  absl::c_for_each(
-      tt_, [](const auto& item) { item.second->ReleaseChildren(nullptr); });
-  // Remove any released non-TT children of TT nodes that were not garbage
-  // collected fast enough.
-  NonTTMaintenance();
-  tt_.clear();
-  gc_queue_.clear();
-}
-
-LowNode* NodeTree::NonTTAddClone(const LowNode& node) {
-  non_tt_.push_back(std::make_unique<LowNode>(node));
-  return non_tt_.back().get();
-}
-
-void NodeTree::NonTTMaintenance() {
-  // Release children of parent-less nodes.
-  absl::c_for_each(non_tt_, [this](const auto& item) {
-    if (item->GetNumParents() == 0) item->ReleaseChildren(&gc_queue_);
-  });
-  // Erase parent-less nodes.
-  for (auto item = non_tt_.begin(); item != non_tt_.end();) {
-    if ((*item)->GetNumParents() == 0) {
-      item = non_tt_.erase(item);
-    } else {
-      ++item;
-    }
-  }
-}
-
-bool NodeTree::TTGCSome(size_t count) {
-  if (gc_queue_.empty()) return false;
-
-  for (auto n = count > 0 ? std::min(count, gc_queue_.size())
-                          : gc_queue_.size();
-       n > 0; --n) {
-    auto hash = gc_queue_.front();
-    gc_queue_.pop_front();
-    auto tt_iter = tt_.find(hash);
-    if (tt_iter != tt_.end()) {
-      if (tt_iter->second->GetNumParents() == 0) {
-        tt_.erase(tt_iter);
-      }
-    }
-  }
-
-  return gc_queue_.empty();
-}
+// Implementations for NodeTree methods were moved to search.cc
+// This section will be empty after cleanup.
 
 }  // namespace lczero

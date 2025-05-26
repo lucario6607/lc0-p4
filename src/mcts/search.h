@@ -245,7 +245,7 @@ class Edge {
   
   // Probability that this move should be played, from the policy head of the
   // neural network (but after adding Dirichlet noise and possibly other transformations).
-  float p_ = 0.0f;
+  float p_ = 0.0; // MODIFIED
   
   // Beta-Bernoulli Thompson Sampling statistics
   BetaBernoulliStats beta_stats_;
@@ -263,7 +263,7 @@ class Node {
   Node(Node* parent, uint16_t index)
       : parent_(parent), index_(index) {}
 
-  void MakeTerminal(GameResult result, float plies_left = 0.0f,
+  void MakeTerminal(GameResult result, float plies_left = 0.0, // MODIFIED
                     Terminal type = Terminal::EndOfGame);
 
   bool IsTerminal() const { return terminal_type_ != Terminal::NonTerminal; }
@@ -284,7 +284,7 @@ class Node {
   void DecrementNInFlight() { --n_in_flight_; }
 
   // Thompson Sampling edge selection
-  uint16_t SelectChildThompsonSampling(std::mt19937& rng, float fpu_value = 0.0f) const;
+  uint16_t SelectChildThompsonSampling(std::mt19937& rng, float fpu_value = 0.0) const; // MODIFIED
   
   // Legacy UCB selection for compatibility
   uint16_t SelectChildToExtend(float cpuct, float fpu_value, 
@@ -297,8 +297,7 @@ class Node {
   void MakeNotTerminal() { terminal_type_ = Terminal::NonTerminal; }
   void CreateEdges(const std::vector<Move>& moves);
 
-  // Initialize Beta parameters with policy priors
-  void InitializeBetaPriors(const std::vector<float>& policy_probs);
+  // Utility methods
   void SortEdges();
   std::string DebugString() const;
   bool HasChildren() const { return !edges_.empty(); }
@@ -340,14 +339,14 @@ class Node {
   uint32_t n_in_flight_ = 0;
 
   // Values from neural network evaluation
-  float wl_ = 0.0f;  // Win/Loss probability difference
-  float d_ = 0.0f;   // Draw probability  
-  float m_ = 0.0f;   // Moves left
+  float wl_ = 0.0;  // MODIFIED
+  float d_ = 0.0;   // MODIFIED
+  float m_ = 0.0;   // MODIFIED
 
   // Terminal status
   Terminal terminal_type_ = Terminal::NonTerminal;
   GameResult result_ = GameResult::UNDECIDED;
-  float plies_left_ = 0.0f;
+  float plies_left_ = 0.0; // MODIFIED
 
   mutable std::shared_mutex mutex_;
 };
@@ -455,8 +454,6 @@ class Search {
 
   // Random number generator for Thompson Sampling
   mutable std::mt19937 rng_;
-  
-  // Friend class for worker access
   friend class SearchWorker;
 };
 
