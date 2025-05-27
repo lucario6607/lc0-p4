@@ -40,7 +40,7 @@ namespace lczero {
 
 // Forward declarations
 class Node;
-class NodeTree;
+class NodeStore; // Changed from NodeTree
 class SearchBehaviorParams;
 class SyzygyTablebase;
 
@@ -371,7 +371,7 @@ struct SearchLimits {
 
 class Search {
  public:
-  Search(const NodeTree& tree, Network* network,
+  Search(const NodeStore& tree, Network* network, // Changed from NodeTree
          CallbackUciResponder::BestMoveCallback best_move_callback,
          CallbackUciResponder::ThinkingCallback info_callback, const SearchLimits& limits,
          const OptionsDict& options, NNCache* cache,
@@ -422,7 +422,7 @@ class Search {
   // Sets up search parameters from UCI options  
   void SetupSearchParams(const OptionsDict& options);
 
-  const NodeTree& played_history_;
+  const NodeStore& played_history_; // Changed from NodeTree
   Network* const network_;
   const SearchLimits limits_;
   const std::chrono::steady_clock::time_point start_time_;
@@ -434,6 +434,7 @@ class Search {
   std::atomic<bool> stop_{false};
 
   Node* root_node_;
+  NodeStore* dag_ = nullptr; // Added to hold the mutable tree/store pointer
   
   // Search parameters
   std::unique_ptr<SearchBehaviorParams> params_;
@@ -445,6 +446,7 @@ class Search {
   
   // Friend class for worker access
   friend class SearchWorker;
+  friend class MEvaluator; // MEvaluator uses SearchParams through Search*
 };
 
 }  // namespace lczero

@@ -105,7 +105,7 @@ void Benchmark::Run() {
       limits.movetime = movetime; // movetime is const int
       // limits.searchmoves is already an empty MoveList by default.
 
-      // const auto start = std::chrono::steady_clock::now(); // start_time is handled by Search constructor internally
+      const auto start = std::chrono::steady_clock::now(); // start_time is handled by Search constructor internally
       auto search = std::make_unique<Search>(
           tree, network.get(),
           std::bind(&Benchmark::OnBestMove, this, std::placeholders::_1),

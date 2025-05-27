@@ -106,7 +106,7 @@ class TimeManager {
  public:
   virtual ~TimeManager() = default;
   virtual std::unique_ptr<SearchStopper> GetStopper(const GoParams& params,
-                                                    const NodeTree& tree) = 0;
+                                                    const NodeStore& tree) = 0;
 };
 
 }  // namespace lczero

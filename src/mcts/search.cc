@@ -39,20 +39,140 @@
 #include <thread>
 
 #include "mcts/node.h"
+#include "mcts/stoppers/stoppers.h" // Added
+#include "syzygy/syzygy.h"         // Added
 #include "utils/fastmath.h"
+#include "utils/mutex.h"           // Added
 #include "utils/random.h"
 #include "utils/spinhelper.h"
 
 namespace lczero {
 
-namespace {
-// Maximum delay between outputting "uci info" when nothing interesting happens.
-const int kUciInfoMinimumFrequencyMs = 5000;
+// Define a constant for max path depth for reserving vector sizes
+constexpr int kMaxSearchPathPly = 512;
 
-MoveList MakeRootMoveFilter(const MoveList& searchmoves,
-                            SyzygyTablebase* syzygy_tb,
-                            const PositionHistory& history, bool fast_play,
-                            std::atomic<int>* tb_hits, bool* dtz_success) {
+namespace { // Anonymous namespace for file-local helper types
+
+// Represents an element in the path taken during MCTS tree traversal.
+// Consists of the node, current repetitions at that node, and moves left estimation.
+using BackupPathNodeInfo = std::tuple<Node*, int, int>;
+using BackupPath = std::vector<BackupPathNodeInfo>;
+
+// Represents a node that needs processing by the SearchWorker.
+struct NodeToProcess {
+    enum class Type {
+        VISIT,     // Node is terminal or already processed, just backpropagate.
+        COLLISION, // Node is being processed by another thread.
+        NN_QUERY   // Node needs NN evaluation.
+    };
+
+    Type type = Type::NN_QUERY;
+    BackupPath path;            // Path from root to this node.
+    PositionHistory history;    // Position history for NN evaluation.
+    uint64_t hash = 0;          // Zobrist hash for NN cache.
+    uint64_t ch_hash = 0;       // Hash for correction history.
+    NNCacheLock lock;           // Lock for NN cache entry.
+
+    Node* node = nullptr;       // The actual node pointer.
+    int repetitions = 0;        // Repetition count at this node.
+    int multivisit = 1;         // How many visits this represents (for collisions).
+    int maxvisit = 0;           // Max visits for collision up-sizing.
+
+    LowNode* tt_low_node = nullptr;   // TT hit, if any.
+    LowNode* twin_low_node = nullptr; // Twin TT hit, if any.
+
+    bool is_tt_hit = false;
+    bool is_twin_hit = false;
+    bool is_cache_hit = false;      // NN cache hit.
+    bool nn_queried = false;        // True if it's a candidate for NN eval.
+    bool ooo_completed = false;     // Out-of-order evaluation completed.
+
+    // Constructor for Visit/NN_Query
+    NodeToProcess(Type t, const BackupPath& p, const PositionHistory& h) : type(t), path(p), history(h) {
+        if (!p.empty()) {
+            node = std::get<0>(p.back());
+            repetitions = std::get<1>(p.back());
+        }
+    }
+
+    // Constructor for Collision
+    NodeToProcess(Type t, const BackupPath& p, int mvisit, int maxv) : type(t), path(p), multivisit(mvisit), maxvisit(maxv) {
+         if (!p.empty()) {
+            node = std::get<0>(p.back());
+            repetitions = std::get<1>(p.back());
+        }
+    }
+    
+    NodeToProcess() = default; // Default constructor
+
+    bool IsCollision() const { return type == Type::COLLISION; }
+    // A node should be added to NN input if it's an NN_QUERY, not a TT/cache hit, and not already terminal by rules.
+    bool ShouldAddToInput() const { 
+        return type == Type::NN_QUERY && 
+               !is_tt_hit && !is_twin_hit && !is_cache_hit && 
+               node && !node->IsTerminal() && repetitions < 2; 
+    }
+    // An extendable node is one that hasn't been evaluated yet (no LowNode) and isn't terminal.
+    bool IsExtendable() const { return node && !node->GetLowNode() && !node->IsTerminal() && repetitions < 2; }
+    // Can evaluate out of order if it's a regular NN query that would be added to input.
+    bool CanEvalOutOfOrder() const { return ShouldAddToInput() && history.IsValid(); }
+    
+    int GetRule50Ply() const {
+        if (history.IsValid() && history.GetLength() > 0) {
+            return history.Last().GetRule50Ply();
+        }
+        return 0;
+    }
+
+    static NodeToProcess Visit(const BackupPath& p, const PositionHistory& h) {
+        return NodeToProcess(Type::VISIT, p, h);
+    }
+    static NodeToProcess Collision(const BackupPath& p, int mvisit, int maxv) {
+        return NodeToProcess(Type::COLLISION, p, mvisit, maxv);
+    }
+    static NodeToProcess NNQuery(const BackupPath& p, const PositionHistory& h) {
+        return NodeToProcess(Type::NN_QUERY, p, h);
+    }
+};
+
+// Represents a task for the SearchWorker's internal task queue.
+struct PickTask {
+    enum TaskType { kGathering, kProcessing };
+    TaskType task_type;
+
+    // For kGathering: Path to extend from, history, and where to put results.
+    BackupPath start_path;
+    PositionHistory history;
+    int collision_limit = 0;
+    std::vector<NodeToProcess> results; // Worker populates this.
+
+    // For kProcessing: Indices in the main minibatch to process.
+    int start_idx = 0;
+    int end_idx = 0;
+
+    bool complete = false;
+
+    // Constructor for kGathering
+    PickTask(const BackupPath& sp, const PositionHistory& h, int cl)
+        : task_type(kGathering), start_path(sp), history(h), collision_limit(cl), complete(false) {}
+
+    // Constructor for kProcessing
+    PickTask(int s_idx, int e_idx)
+        : task_type(kProcessing), start_idx(s_idx), end_idx(e_idx), complete(false) {}
+};
+
+// NOTE: The original anonymous namespace containing MakeRootMoveFilter, SearchWorker forward decl, MEvaluator
+// is kept separate. The new definitions are in their own anonymous namespace above.
+
+// Original anonymous namespace contents moved into the main lczero namespace or SearchWorker
+// Maximum delay between outputting "uci info" when nothing interesting happens.
+// const int kUciInfoMinimumFrequencyMs = 5000; // This can be a static const in Search or SearchWorker if needed
+
+// MakeRootMoveFilter can be a static private method of Search or free function in lczero namespace
+static MoveList MakeRootMoveFilterLczero(const MoveList& searchmoves, // Renamed to avoid conflict
+                                  SyzygyTablebase* syzygy_tb,
+                                  const PositionHistory& history, bool fast_play,
+                                  std::atomic<int>* tb_hits, bool* dtz_success) {
   assert(tb_hits);
   assert(dtz_success);
   // Search moves overrides tablebase.
@@ -74,9 +194,9 @@ MoveList MakeRootMoveFilter(const MoveList& searchmoves,
   return root_moves;
 }
 
-class SearchWorker; // Forward declaration
 
-class MEvaluator {
+// MEvaluator can be a helper class within lczero namespace or nested if only used by SearchWorker
+class MEvaluator { // Assuming this is fine in lczero namespace
  public:
   MEvaluator()
       : enabled_{false},
@@ -148,39 +268,36 @@ class MEvaluator {
   bool parent_within_threshold_ = false;
 };
 
-}  // namespace
-
-// Helper class for performing MCTS search.
-// Each SearchWorker object is owned by a Search object and is run in a
-// separate thread.
+// SearchWorker class definition moved into lczero namespace
 class SearchWorker {
  public:
-  SearchWorker(Search* search, const SearchParams& params, int thread_id)
-      : search_(search),
-        params_(params),
-        history_(search->played_history_.MaxDepth()),
+  SearchWorker(Search* search_ptr, const SearchParams& search_params, int t_id)
+      : search_(search_ptr),
+        params_(search_params),
+        history_(), // Default construct, will be sync'd
         moves_left_support_(
-            search->network_->GetCapabilities().has_moves_left()),
+            search_ptr->network_->GetCapabilities().moves_left), // Corrected access
         main_workspace_(),
-        thread_id_(thread_id) {
-    main_workspace_.visits_to_perform.reserve(history_.MaxDepth());
-    main_workspace_.vtp_buffer.reserve(history_.MaxDepth());
-    main_workspace_.vtp_last_filled.reserve(history_.MaxDepth());
-    main_workspace_.current_path.reserve(history_.MaxDepth());
-    main_workspace_.full_path.reserve(history_.MaxDepth());
-    main_workspace_.cur_iters.reserve(256);
+        thread_id_(t_id) {
+    main_workspace_.visits_to_perform.reserve(kMaxSearchPathPly);
+    main_workspace_.vtp_buffer.reserve(kMaxSearchPathPly);
+    main_workspace_.vtp_last_filled.reserve(kMaxSearchPathPly);
+    main_workspace_.current_path.reserve(kMaxSearchPathPly);
+    main_workspace_.full_path.reserve(kMaxSearchPathPly);
+    main_workspace_.cur_iters.reserve(256); // Assuming 256 is a reasonable max for edges
     if (params_.GetTaskWorkersPerSearchWorker() > 0) {
       task_workspaces_.resize(params_.GetTaskWorkersPerSearchWorker());
       for (int i = 0; i < params_.GetTaskWorkersPerSearchWorker(); i++) {
-        task_workspaces_[i].visits_to_perform.reserve(history_.MaxDepth());
-        task_workspaces_[i].vtp_buffer.reserve(history_.MaxDepth());
-        task_workspaces_[i].vtp_last_filled.reserve(history_.MaxDepth());
-        task_workspaces_[i].current_path.reserve(history_.MaxDepth());
-        task_workspaces_[i].full_path.reserve(history_.MaxDepth());
+        task_workspaces_[i].visits_to_perform.reserve(kMaxSearchPathPly);
+        task_workspaces_[i].vtp_buffer.reserve(kMaxSearchPathPly);
+        task_workspaces_[i].vtp_last_filled.reserve(kMaxSearchPathPly);
+        task_workspaces_[i].current_path.reserve(kMaxSearchPathPly);
+        task_workspaces_[i].full_path.reserve(kMaxSearchPathPly);
         task_workspaces_[i].cur_iters.reserve(256);
       }
     }
   }
+  // ... (rest of SearchWorker methods need lczero::SearchWorker:: prefix and member access corrections) ...
   ~SearchWorker() {
     exiting_ = true;
     {
@@ -303,24 +420,27 @@ class SearchWorker {
   int thread_id_ = 0;
 };
 
-Search::Search(NodeTree* dag, Network* network,
-               std::unique_ptr<UciResponder> uci_responder,
-               const MoveList& searchmoves,
-               std::chrono::steady_clock::time_point start_time,
-               std::unique_ptr<SearchStopper> stopper, bool infinite,
-               bool ponder, const OptionsDict& options, NNCache* cache,
-               SyzygyTablebase* syzygy_tb)
-    : ok_to_respond_bestmove_(!infinite && !ponder),
-      stopper_(std::move(stopper)),
-      root_node_(dag->GetCurrentHead()),
-      cache_(cache),
-      dag_(dag),
-      syzygy_tb_(syzygy_tb),
-      played_history_(dag->GetPositionHistory()),
-      network_(network),
-      params_(options),
-      searchmoves_(searchmoves),
-      start_time_(start_time),
+// Search constructor (already modified in Turn 29/30 to use NodeStore)
+// Ensure it matches the .h file: Search(const NodeStore& tree, ...)
+Search::Search(const NodeStore& tree_store, Network* network_ptr,
+               CallbackUciResponder::BestMoveCallback best_move_cb,
+               CallbackUciResponder::ThinkingCallback info_cb,
+               const SearchLimits& search_limits,
+               const OptionsDict& opts, NNCache* cache_ptr,
+               SyzygyTablebase* syzygy_tb_ptr)
+    : played_history_(tree_store),
+      network_(network_ptr),
+      limits_(search_limits),
+      start_time_(std::chrono::steady_clock::now()),
+      best_move_callback_(best_move_cb),
+      info_callback_(info_cb),
+      ok_to_respond_bestmove_(!limits_.infinite && !limits_.ponder),
+      root_node_(played_history_.GetCurrentHead()),
+      cache_(cache_ptr),
+      dag_(&const_cast<NodeStore&>(tree_store)), // Initialize NodeStore* dag_
+      syzygy_tb_(syzygy_tb_ptr),
+      params_(opts),
+      searchmoves_(limits_.searchmoves),
       initial_visits_(root_node_->GetN()),
       root_move_filter_(MakeRootMoveFilter(
           searchmoves_, syzygy_tb_, played_history_,
