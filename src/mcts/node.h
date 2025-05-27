@@ -349,7 +349,7 @@ class Node {
                            uint32_t multivisit, float multiweight);
   // Like FinalizeScoreUpdate, but it updates n existing visits by delta amount.
   void AdjustForTerminal(float v, float d, float m, float vs,
-                         uint32_t multivisit, float multiweight);
+                         float multiweight);
   // When search decides to treat one visit as several (in case of collisions
   // or visiting terminal nodes several times), it amplifies the visit by
   // incrementing n_in_flight.
@@ -655,7 +655,7 @@ class LowNode {
 
   // Like FinalizeScoreUpdate, but it updates n existing visits by delta amount.
   void AdjustForTerminal(float v, float d, float m, float vs,
-                         uint32_t multivisit, float multiweight);
+                         float multiweight);
 
   // Deletes all children.
   void ReleaseChildren(GCQueue* gc_queue);

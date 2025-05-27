@@ -98,7 +98,7 @@ void Benchmark::Run() {
       NNCache cache;
       cache.SetCapacity(option_dict.Get<int>(kNNCacheSizeId));
 
-      NodeStore tree(SearchParams(option_dict));
+      NodeStore tree{SearchParams(option_dict)};
       tree.ResetToPosition(position, {});
 
       SearchLimits limits;
