@@ -32,7 +32,8 @@
 #include "utils/optionsparser.h"
 #include "chess/bitboard.h"
 #include "chess/board.h"
-#include "src/chess/callbacks.h"
+#include "chess/position.h"
+#include "chess/callbacks.h"
 #include "src/mcts/node.h"
 
 namespace lczero {
@@ -62,39 +63,12 @@ struct SearchStats {
   int64_t time_since_first_batch = 0;
 };
 
-/*
-struct ThinkingInfo {
-  int multipv = 1;
-  int depth = 0;
-  int seldepth = 0;
-  int64_t time = 0;
-  uint64_t nodes = 0;
-  int score = 0;
-  std::vector<Move> pv;
-};
-*/
-
-/*
-struct BestMoveInfo {
-  Move bestmove;
-  Move ponder;
-  using Callback = std::function<void(const BestMoveInfo&)>;
-};
-*/
-
 enum class StoppageReason {
   VISITS_LIMIT,
   TIME_LIMIT,
   MOVETIME_LIMIT,
   HIGH_CONFIDENCE,
   USER_STOP
-};
-
-enum class GameResult {
-  UNDECIDED,
-  WHITE_WON,
-  BLACK_WON,
-  DRAW
 };
 
 // Simple SearchParams class for configuration
@@ -398,8 +372,8 @@ struct SearchLimits {
 class Search {
  public:
   Search(const NodeTree& tree, Network* network,
-         BestMoveInfo::Callback best_move_callback,
-         ThinkingInfo::Callback info_callback, const SearchLimits& limits,
+         CallbackUciResponder::BestMoveCallback best_move_callback,
+         CallbackUciResponder::ThinkingCallback info_callback, const SearchLimits& limits,
          const OptionsDict& options, NNCache* cache,
          SyzygyTablebase* syzygy_tb);
 
@@ -452,8 +426,8 @@ class Search {
   Network* const network_;
   const SearchLimits limits_;
   const std::chrono::steady_clock::time_point start_time_;
-  const BestMoveInfo::Callback best_move_callback_;
-  const ThinkingInfo::Callback info_callback_;
+  const CallbackUciResponder::BestMoveCallback best_move_callback_;
+  const CallbackUciResponder::ThinkingCallback info_callback_;
 
   mutable std::mutex threads_mutex_;
   std::vector<std::thread> threads_;

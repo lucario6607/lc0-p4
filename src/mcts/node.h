@@ -262,21 +262,7 @@ class Node {
         upper_bound_(GameResult::WHITE_WON),
         repetition_(false) {}
   // Takes own @edge and @index in the parent.
-  Node(const Edge& edge, uint16_t index)
-      : edge_(edge),
-        index_(index),
-        terminal_type_(Terminal::NonTerminal),
-        lower_bound_(GameResult::BLACK_WON),
-        upper_bound_(GameResult::WHITE_WON),
-        repetition_(false) {
-          if (use_thompson_sampling_) { // Initialize Beta parameters if TS is enabled
-            // alpha = 1 + P * temp_strength
-            // beta  = 1 + (1-P) * temp_strength
-            // policy_temperature_ acts as temp_strength
-            beta_alpha_.store(1.0 + static_cast<double>(edge_.GetP()) * policy_temperature_);
-            beta_beta_.store(1.0 + (1.0 - static_cast<double>(edge_.GetP())) * policy_temperature_);
-          }
-        }
+  Node(const Edge& edge, uint16_t index);
   ~Node() { UnsetLowNode(); }
 
   // Trim node, resetting everything except parent, sibling, edge and index.

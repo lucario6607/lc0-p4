@@ -31,6 +31,7 @@
 
 #include "chess/uciloop.h"
 #include "mcts/search.h"
+#include "mcts/stoppers/timemgr.h"
 #include "neural/cache.h"
 #include "neural/factory.h"
 #include "neural/network.h"
@@ -94,7 +95,7 @@ class EngineController {
 
   std::unique_ptr<TimeManager> time_manager_;
   std::unique_ptr<Search> search_;
-  std::unique_ptr<NodeTree> tree_;
+  std::unique_ptr<NodeStore> tree_;
   std::unique_ptr<SyzygyTablebase> syzygy_tb_;
   std::unique_ptr<Network> network_;
   NNCache cache_;

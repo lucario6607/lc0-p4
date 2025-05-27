@@ -231,7 +231,7 @@ void EngineController::SetupPosition(
 
   UpdateFromUciOptions();
 
-  if (!tree_) tree_ = std::make_unique<NodeTree>(options_);
+  if (!tree_) tree_ = std::make_unique<NodeStore>(SearchParams(options_));
 
   std::vector<Move> moves;
   for (const auto& move : moves_str) moves.emplace_back(move);

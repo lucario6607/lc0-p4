@@ -29,6 +29,7 @@
 
 #include "chess/board.h"
 #include "mcts/node.h"
+#include "mcts/search.h"
 #include "neural/encoder.h"
 #include "neural/factory.h"
 #include "utils/optionsparser.h"
@@ -96,7 +97,7 @@ void BackendBenchmark::Run() {
 
     auto network = NetworkFactory::LoadNetwork(option_dict);
 
-    NodeTree tree;
+    NodeStore tree; // Changed NodeTree to NodeStore
     tree.ResetToPosition(option_dict.Get<std::string>(kFenId), {});
 
     // Do any backend initialization outside the loop.

@@ -97,17 +97,23 @@ void Benchmark::Run() {
       NNCache cache;
       cache.SetCapacity(option_dict.Get<int>(kNNCacheSizeId));
 
-      NodeTree tree = {option_dict};
+      NodeTree tree; // Use default constructor
       tree.ResetToPosition(position, {});
 
-      const auto start = std::chrono::steady_clock::now();
+      SearchLimits limits;
+      limits.visits = visits; // visits is const int
+      limits.movetime = movetime; // movetime is const int
+      // limits.searchmoves is already an empty MoveList by default.
+
+      // const auto start = std::chrono::steady_clock::now(); // start_time is handled by Search constructor internally
       auto search = std::make_unique<Search>(
-          &tree, network.get(),
-          std::make_unique<CallbackUciResponder>(
-              std::bind(&Benchmark::OnBestMove, this, std::placeholders::_1),
-              std::bind(&Benchmark::OnInfo, this, std::placeholders::_1)),
-          MoveList(), start, std::move(stopper), false, false, option_dict,
-          &cache, nullptr);
+          tree, network.get(),
+          std::bind(&Benchmark::OnBestMove, this, std::placeholders::_1),
+          std::bind(&Benchmark::OnInfo, this, std::placeholders::_1),
+          limits,
+          option_dict,
+          &cache,
+          nullptr);
       search->StartThreads(option_dict.Get<int>(kThreadsOptionId));
       search->Wait();
       const auto end = std::chrono::steady_clock::now();
@@ -115,7 +121,7 @@ void Benchmark::Run() {
       const auto time =
           std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
       times.push_back(time.count());
-      playouts.push_back(search->GetTotalPlayouts());
+      playouts.push_back(search->GetStats().total_nodes);
     }
 
     const auto total_playouts =
