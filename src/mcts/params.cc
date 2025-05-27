@@ -555,6 +555,16 @@ const OptionId SearchParams::kCorrectionHistoryAlphaId{
 const OptionId SearchParams::kCorrectionHistoryLambdaId{
     "correction-history-lambda", "CorrectionHistoryLambda",
     "Strength of correction history adjustment. [0,1]"};
+
+const OptionId SearchParams::kUseBetaBernoulliId{
+    "UseBetaBernoulliInternalName", "UseBetaBernoulli",
+    "Enable Beta-Bernoulli Thompson Sampling instead of PUCT.", ' '};
+const OptionId SearchParams::kPolicyTemperatureTSId{
+    "PolicyTemperatureTSInternalName", "PolicyTemperature",
+    "Policy temperature for initializing Beta priors in Thompson Sampling.", ' '};
+const OptionId SearchParams::kThompsonFPUId{
+    "ThompsonFPUInternalName", "ThompsonFPU",
+    "First Play Urgency value/bonus for unvisited Thompson Sampling nodes.", ' '};
 	
 
 void SearchParams::Populate(OptionsParser* options) {
@@ -697,6 +707,10 @@ void SearchParams::Populate(OptionsParser* options) {
   options->Add<BoolOption>(kUseCorrectionHistoryId) = false;
   options->Add<FloatOption>(kCorrectionHistoryAlphaId, 0, 1) = 1;
   options->Add<FloatOption>(kCorrectionHistoryLambdaId, 0, 1) = 0.3;
+
+  options->Add<BoolOption>(SearchParams::kUseBetaBernoulliId) = false;
+  options->Add<FloatOption>(SearchParams::kPolicyTemperatureTSId, 0.01f, 100.0f) = 1.0f;
+  options->Add<FloatOption>(SearchParams::kThompsonFPUId, 0.0f, 1.0f) = 0.1f;
 
 
 	
@@ -865,6 +879,9 @@ SearchParams::SearchParams(const OptionsDict& options)
       kPolicyDecayExponent(options.Get<float>(kPolicyDecayExponentId)),
       kPolicyDecayFactor(options.Get<float>(kPolicyDecayFactorId)),
 
+      kUseBetaBernoulli(options.Get<bool>(kUseBetaBernoulliId)),
+      kPolicyTemperatureTS(options.Get<float>(kPolicyTemperatureTSId)),
+      kThompsonFPU(options.Get<float>(kThompsonFPUId)),
 
       kEasyEvalWeightDecay(options.Get<float>(kEasyEvalWeightDecayId)),
       kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)) {}
