@@ -776,7 +776,7 @@ std::string EdgeAndNode::DebugString() const {
 // NodeTree
 /////////////////////////////////////////////////////////////////////////
 
-void NodeTree::MakeMove(Move move) {
+void NodeStore::MakeMove(Move move) {
   if (HeadPosition().IsBlackToMove()) move.Mirror();
   const auto& board = HeadPosition().GetBoard();
   auto hash = GetHistoryHash(history_);
@@ -833,13 +833,13 @@ void NodeTree::MakeMove(Move move) {
   moves_.push_back(move);
 }
 
-void NodeTree::TrimTreeAtHead() {
+void NodeStore::TrimTreeAtHead() {
   current_head_->Trim(&gc_queue_);
   // Free unused non-TT low nodes.
   NonTTMaintenance();
 }
 
-bool NodeTree::ResetToPosition(const std::string& starting_fen,
+bool NodeStore::ResetToPosition(const std::string& starting_fen,
                                const std::vector<Move>& moves) {
   ChessBoard starting_board;
   int no_capture_ply;
@@ -880,7 +880,7 @@ bool NodeTree::ResetToPosition(const std::string& starting_fen,
   return seen_old_head;
 }
 
-void NodeTree::DeallocateTree() {
+void NodeStore::DeallocateTree() {
   gamebegin_node_.reset();
   current_head_ = nullptr;
   // Free all nodes.
@@ -892,7 +892,7 @@ void NodeTree::DeallocateTree() {
   gc_queue_.clear();
 }
 
-LowNode* NodeTree::TTFind(uint64_t hash) {
+LowNode* NodeStore::TTFind(uint64_t hash) {
   auto tt_iter = tt_.find(hash);
   if (tt_iter != tt_.end()) {
     return tt_iter->second.get();
@@ -901,26 +901,26 @@ LowNode* NodeTree::TTFind(uint64_t hash) {
   }
 }
 
-CorrHistEntry* NodeTree::CHTGetOrCreate(uint64_t hash) {
+CorrHistEntry* NodeStore::CHTGetOrCreate(uint64_t hash) {
   auto [cht_iter, is_cht_miss] = cht_.insert({hash, std::make_unique<CorrHistEntry>()});
   return cht_iter->second.get();
 }
 
-std::pair<LowNode*, bool> NodeTree::TTGetOrCreate(uint64_t hash) {
+std::pair<LowNode*, bool> NodeStore::TTGetOrCreate(uint64_t hash) {
   auto [tt_iter, is_tt_miss] =
       tt_.insert({hash, std::make_unique<LowNode>(hash)});
   return {tt_iter->second.get(), is_tt_miss};
 }
 
-std::pair<LowNode*, bool> NodeTree::TTGetOrCreate(const LowNode& p, uint64_t hash) {
+std::pair<LowNode*, bool> NodeStore::TTGetOrCreate(const LowNode& p, uint64_t hash) {
   auto [tt_iter, is_tt_miss] =
       tt_.insert({hash, std::make_unique<LowNode>(p, hash)});
   return {tt_iter->second.get(), is_tt_miss};
 }
 
-void NodeTree::TTMaintenance() { TTGCSome(0); }
+void NodeStore::TTMaintenance() { TTGCSome(0); }
 
-void NodeTree::TTClear() {
+void NodeStore::TTClear() {
   // Make sure destructors don't fail.
   absl::c_for_each(
       tt_, [](const auto& item) { item.second->ReleaseChildren(nullptr); });
@@ -931,12 +931,12 @@ void NodeTree::TTClear() {
   gc_queue_.clear();
 }
 
-LowNode* NodeTree::NonTTAddClone(const LowNode& node) {
+LowNode* NodeStore::NonTTAddClone(const LowNode& node) {
   non_tt_.push_back(std::make_unique<LowNode>(node));
   return non_tt_.back().get();
 }
 
-void NodeTree::NonTTMaintenance() {
+void NodeStore::NonTTMaintenance() {
   // Release children of parent-less nodes.
   absl::c_for_each(non_tt_, [this](const auto& item) {
     if (item->GetNumParents() == 0) item->ReleaseChildren(&gc_queue_);
@@ -951,7 +951,7 @@ void NodeTree::NonTTMaintenance() {
   }
 }
 
-bool NodeTree::TTGCSome(size_t count) {
+bool NodeStore::TTGCSome(size_t count) {
   if (gc_queue_.empty()) return false;
 
   for (auto n = count > 0 ? std::min(count, gc_queue_.size())

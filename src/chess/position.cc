@@ -82,29 +82,29 @@ uint64_t Position::CHHash() const { return us_board_.CHHash(); }
 
 std::string Position::DebugString() const { return us_board_.DebugString(); }
 
-GameResult operator-(const GameResult& res) {
-  return res == GameResult::BLACK_WON   ? GameResult::WHITE_WON
-         : res == GameResult::WHITE_WON ? GameResult::BLACK_WON
+PositionGameResult operator-(const PositionGameResult& res) {
+  return res == PositionGameResult::BLACK_WON   ? PositionGameResult::WHITE_WON
+         : res == PositionGameResult::WHITE_WON ? PositionGameResult::BLACK_WON
                                         : res;
 }
 
-GameResult PositionHistory::ComputeGameResult() const {
+PositionGameResult PositionHistory::ComputeGameResult() const {
   const auto& board = Last().GetBoard();
   auto legal_moves = board.GenerateLegalMoves();
   if (legal_moves.empty()) {
     if (board.IsUnderCheck()) {
       // Checkmate.
-      return IsBlackToMove() ? GameResult::WHITE_WON : GameResult::BLACK_WON;
+      return IsBlackToMove() ? PositionGameResult::WHITE_WON : PositionGameResult::BLACK_WON;
     }
     // Stalemate.
-    return GameResult::DRAW;
+    return PositionGameResult::DRAW;
   }
 
-  if (!board.HasMatingMaterial()) return GameResult::DRAW;
-  if (Last().GetRule50Ply() >= 100) return GameResult::DRAW;
-  if (Last().GetRepetitions() >= 2) return GameResult::DRAW;
+  if (!board.HasMatingMaterial()) return PositionGameResult::DRAW;
+  if (Last().GetRule50Ply() >= 100) return PositionGameResult::DRAW;
+  if (Last().GetRepetitions() >= 2) return PositionGameResult::DRAW;
 
-  return GameResult::UNDECIDED;
+  return PositionGameResult::UNDECIDED;
 }
 
 void PositionHistory::Reset(const ChessBoard& board, int rule50_ply,
@@ -169,7 +169,7 @@ uint64_t PositionHistory::HashLast(int positions, int r50_ply) const {
 
 uint64_t PositionHistory::CHHash() const { 
   Position last = Last();
-  const Move last_move = LastMove();
+  // const Move last_move = LastMove();
   uint64_t position_hash = last.CHHash();
  // if (last_move) {
 	//	position_hash = HashCat(position_hash, last_move.Hash());

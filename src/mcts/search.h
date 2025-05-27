@@ -30,18 +30,21 @@
 #include "neural/network.h"
 #include "utils/optionsdict.h"
 #include "utils/optionsparser.h"
-#include "chess/move.h"
+#include "chess/bitboard.h"
 #include "chess/board.h"
+#include "src/chess/callbacks.h"
+#include "src/mcts/node.h"
 
 namespace lczero {
 
 // Forward declarations
 class Node;
 class NodeTree;
-class SearchParams;
+class SearchBehaviorParams;
+class SyzygyTablebase;
 
 // Supporting structures
-struct IterationStats {
+struct SearchScopeIterationStats {
   uint64_t total_nodes = 0;
   uint64_t nodes_since_last = 0;
   uint32_t batches_pending = 0;
@@ -59,6 +62,7 @@ struct SearchStats {
   int64_t time_since_first_batch = 0;
 };
 
+/*
 struct ThinkingInfo {
   int multipv = 1;
   int depth = 0;
@@ -68,12 +72,15 @@ struct ThinkingInfo {
   int score = 0;
   std::vector<Move> pv;
 };
+*/
 
+/*
 struct BestMoveInfo {
   Move bestmove;
   Move ponder;
   using Callback = std::function<void(const BestMoveInfo&)>;
 };
+*/
 
 enum class StoppageReason {
   VISITS_LIMIT,
@@ -91,9 +98,9 @@ enum class GameResult {
 };
 
 // Simple SearchParams class for configuration
-class SearchParams {
+class SearchBehaviorParams {
 public:
-  SearchParams() = default;
+  SearchBehaviorParams() = default;
   
   void SetFpuValue(float value) { fpu_value_ = value; }
   float GetFpuValue() const { return fpu_value_; }
@@ -135,7 +142,9 @@ struct BetaBernoulliStats {
   // Update with game outcome value in [-1, 1]
   void Update(double value) {
     visits.fetch_add(1, std::memory_order_relaxed);
-    value_sum.fetch_add(value, std::memory_order_relaxed);
+    double old_value_sum = value_sum.load(std::memory_order_relaxed);
+    while (!value_sum.compare_exchange_weak(old_value_sum, old_value_sum + value,
+                                           std::memory_order_relaxed, std::memory_order_relaxed)) {}
     
     // Convert value to probability [0, 1]
     double prob = (value + 1.0) / 2.0;
@@ -197,6 +206,7 @@ struct BetaBernoulliStats {
   }
 };
 
+/*
 class Edge {
  public:
   // Move
@@ -253,9 +263,11 @@ class Edge {
   // Node that this edge points to.
   std::unique_ptr<Node> node_;
 };
+*/
 
-typedef std::vector<Edge> EdgeList;
+// typedef std::vector<Edge> EdgeList; // EdgeList is defined in node.h
 
+/*
 class Node {
  public:
   enum class Terminal : uint8_t { NonTerminal, EndOfGame, Tablebase };
@@ -351,6 +363,7 @@ class Node {
 
   mutable std::shared_mutex mutex_;
 };
+*/
 
 class NodeTree {
  public:
@@ -429,7 +442,7 @@ class Search {
   void SendUciInfo();  
   int64_t GetTimeSinceStart() const;
   int64_t GetTimeSinceFirstBatch() const;
-  void MaybeTriggerStop(const IterationStats& stats, StoppageReason* reason);
+  void MaybeTriggerStop(const SearchScopeIterationStats& stats, StoppageReason* reason);
   void MaybeOutputInfo();
   
   // Sets up search parameters from UCI options  
@@ -449,7 +462,7 @@ class Search {
   Node* root_node_;
   
   // Search parameters
-  std::unique_ptr<SearchParams> params_;
+  std::unique_ptr<SearchBehaviorParams> params_;
   NNCache* cache_;
   SyzygyTablebase* syzygy_tb_;
 

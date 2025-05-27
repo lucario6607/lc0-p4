@@ -531,13 +531,13 @@ class LowNode {
   // For non-TT nodes.
   LowNode(const LowNode& p)
       : wl_(p.wl_),
-        v_(p.v_),
+        vs_(p.vs_),
+        d_(p.d_),
         hash_(p.hash_),
         ch_hash_(p.ch_hash_),
-        d_(p.d_),
         m_(p.m_),
-        vs_(p.vs_),
-        e_(p.e_), 
+        v_(p.v_),
+        e_(p.e_),
         num_edges_(p.num_edges_),
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
@@ -552,13 +552,13 @@ class LowNode {
   // Only used when creating twin low nodes
   LowNode(const LowNode& p, const uint64_t hash)
       : wl_(p.wl_),
-        v_(p.v_),
+        vs_(p.vs_),
+        d_(p.d_),
         hash_(hash),
         ch_hash_(p.ch_hash_),
-        d_(p.d_),
         m_(p.m_),
-        vs_(p.vs_),
-        e_(p.e_), 
+        v_(p.v_),
+        e_(p.e_),
         num_edges_(p.num_edges_),
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
@@ -1080,7 +1080,7 @@ inline VisitedNode_Iterator<false> Node::VisitedNodes() {
   return {this->GetLowNode()};
 }
 
-class NodeTree {
+class NodeStore {
  public:
   // Transposition Table (TT) type for holding all normal low nodes in the DAG.
   typedef absl::flat_hash_map<uint64_t, std::unique_ptr<LowNode>>
@@ -1091,11 +1091,11 @@ class NodeTree {
       CorrHistTable;
 
   // Apply search params.
-  NodeTree(const SearchParams& params)
+  NodeStore(const SearchParams& params)
       : hash_history_length_(params.GetCacheHistoryLength() + 1) {}
   // When search params are not available.
-  NodeTree() : hash_history_length_(1) {}
-  ~NodeTree() { DeallocateTree(); }
+  NodeStore() : hash_history_length_(1) {}
+  ~NodeStore() { DeallocateTree(); }
 
   // Adds a move to current_head_.
   void MakeMove(Move move);
@@ -1186,4 +1186,3 @@ class NodeTree {
 
 }  // namespace lczero
 
-[end of src/mcts/node.h]

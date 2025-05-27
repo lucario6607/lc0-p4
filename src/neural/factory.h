@@ -30,7 +30,7 @@
 #include <functional>
 #include <optional>
 #include <string>
-
+#include "proto/net.pb.h"
 #include "neural/loader.h"
 #include "neural/network.h"
 #include "utils/optionsdict.h"
