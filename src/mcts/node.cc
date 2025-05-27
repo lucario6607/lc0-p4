@@ -43,7 +43,14 @@
 #include "utils/exception.h"
 #include "utils/hashcat.h"
 
+#include <cmath>  // For std::gamma_distribution
+#include <random> // For std::random_device, std::mt19937
+
 namespace lczero {
+
+thread_local std::mt19937 Node::rng_(std::random_device{}());
+bool Node::use_thompson_sampling_ = false;
+double Node::policy_temperature_ = 1.0;
 
 /////////////////////////////////////////////////////////////////////////
 // Edge
@@ -152,6 +159,23 @@ void Node::Trim(GCQueue* gc_queue) {
   lower_bound_ = GameResult::BLACK_WON;
   upper_bound_ = GameResult::WHITE_WON;
   repetition_ = false;
+  // Reset beta params to default, though not strictly necessary if node is re-initialized
+  beta_alpha_.store(1.0, std::memory_order_relaxed);
+  beta_beta_.store(1.0, std::memory_order_relaxed);
+}
+
+Node::Node(const Edge& edge, uint16_t index)
+    : edge_(edge),
+      index_(index),
+      terminal_type_(Terminal::NonTerminal),
+      lower_bound_(GameResult::BLACK_WON),
+      upper_bound_(GameResult::WHITE_WON),
+      repetition_(false) {
+  if (use_thompson_sampling_ && edge_.GetP() > 0.0f) {
+    double prior_strength = policy_temperature_;
+    beta_alpha_.store(1.0 + edge_.GetP() * prior_strength, std::memory_order_relaxed);
+    beta_beta_.store(1.0 + (1.0 - edge_.GetP()) * prior_strength, std::memory_order_relaxed);
+  }
 }
 
 Node* Node::GetChild() const {
@@ -942,6 +966,70 @@ bool NodeTree::TTGCSome(size_t count) {
   }
 
   return gc_queue_.empty();
+}
+
+double Node::SampleBeta() const {
+    if (!use_thompson_sampling_) {
+        // Fallback: This path should ideally not be hit if Search.cc handles the branching.
+        // If it is hit, it means Node itself is supposed to provide a UCB score.
+        // Placeholder: return Q value or Policy if unvisited.
+        if (GetN() == 0) return GetP() + 0.1; // Policy + FPU for unvisited
+        return GetWL(); // Existing Q value for visited
+    }
+
+    if (GetN() == 0) { // Unvisited node with Thompson Sampling
+        double prior = GetP();
+        return prior + 0.1; // Small FPU-like bonus
+    }
+
+    double alpha = beta_alpha_.load(std::memory_order_relaxed);
+    double beta = beta_beta_.load(std::memory_order_relaxed);
+
+    std::gamma_distribution<double> gamma_alpha(alpha, 1.0);
+    std::gamma_distribution<double> gamma_beta(beta, 1.0);
+
+    double x = gamma_alpha(rng_);
+    double y = gamma_beta(rng_);
+
+    if (x + y < 1e-10) return 0.5; // Avoid division by zero
+
+    return x / (x + y);
+}
+
+void Node::UpdateBeta(double game_result) {
+    if (!use_thompson_sampling_) return;
+
+    double prob = (game_result + 1.0) / 2.0; // Assuming game_result is -1, 0, or 1
+
+    double current_alpha = beta_alpha_.load(std::memory_order_relaxed);
+    while (!beta_alpha_.compare_exchange_weak(current_alpha, current_alpha + prob,
+                                              std::memory_order_acq_rel, std::memory_order_relaxed)) {
+        // Retry
+    }
+
+    double current_beta = beta_beta_.load(std::memory_order_relaxed);
+    while (!beta_beta_.compare_exchange_weak(current_beta, current_beta + (1.0 - prob),
+                                             std::memory_order_acq_rel, std::memory_order_relaxed)) {
+        // Retry
+    }
+}
+
+double Node::GetBetaMean() const {
+    double alpha = beta_alpha_.load(std::memory_order_relaxed);
+    double beta = beta_beta_.load(std::memory_order_relaxed);
+    if (alpha + beta < 1e-10) return 0.5; // Avoid division by zero
+    return alpha / (alpha + beta);
+}
+
+double Node::GetBetaUncertainty() const {
+    double alpha = beta_alpha_.load(std::memory_order_relaxed);
+    double beta = beta_beta_.load(std::memory_order_relaxed);
+    double total = alpha + beta;
+    if (total < 1e-10) return 0.0; // Avoid division by zero for variance calculation
+    double total_plus_1 = total + 1.0;
+    if (total_plus_1 < 1e-10) return 0.0; // Should not happen if total > 0
+    // Variance of a Beta distribution
+    return (alpha * beta) / (total * total * total_plus_1);
 }
 
 }  // namespace lczero
