@@ -1080,5 +1080,3 @@ double Node::GetAdaptiveTemperature() const {
 }
 
 }  // namespace lczero
-
-[end of src/mcts/node.cc]

@@ -97,8 +97,8 @@ class Position {
 std::string GetFen(const Position& pos);
 
 // These are ordered so max() prefers the best result.
-enum class PositionGameResult : uint8_t { UNDECIDED, BLACK_WON, DRAW, WHITE_WON };
-PositionGameResult operator-(const PositionGameResult& res);
+enum class GameResult : uint8_t { UNDECIDED, BLACK_WON, DRAW, WHITE_WON };
+GameResult operator-(const GameResult& res);
 
 class PositionHistory {
  public:
@@ -159,7 +159,7 @@ class PositionHistory {
   void Pop() { positions_.pop_back(); }
 
   // Finds the endgame state (win/lose/draw/nothing) for the last position.
-  PositionGameResult ComputeGameResult() const;
+  GameResult ComputeGameResult() const;
 
   // Returns whether next move is history should be black's.
   bool IsBlackToMove() const { return Last().IsBlackToMove(); }
