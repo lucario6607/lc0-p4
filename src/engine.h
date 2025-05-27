@@ -27,6 +27,7 @@
 
 #pragma once
 
+#include <memory>
 #include <optional>
 
 #include "chess/uciloop.h"
@@ -95,6 +96,7 @@ class EngineController {
 
   std::unique_ptr<TimeManager> time_manager_;
   std::unique_ptr<Search> search_;
+  std::unique_ptr<UciResponder> active_responder_;
   std::unique_ptr<NodeStore> tree_;
   std::unique_ptr<SyzygyTablebase> syzygy_tb_;
   std::unique_ptr<Network> network_;

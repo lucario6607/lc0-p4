@@ -193,6 +193,7 @@ void EngineController::NewGame() {
   SharedLock lock(busy_mutex_);
   cache_.Clear();
   search_.reset();
+  active_responder_.reset();
   tree_.reset();
   CreateFreshTimeManager();
   current_position_ = {ChessBoard::kStartposFen, {}};
@@ -207,6 +208,7 @@ void EngineController::SetPosition(const std::string& fen,
   SharedLock lock(busy_mutex_);
   current_position_ = CurrentPosition{fen, moves_str};
   search_.reset();
+  active_responder_.reset();
 }
 
 Position EngineController::ApplyPositionMoves() {
@@ -228,6 +230,7 @@ void EngineController::SetupPosition(
     const std::string& fen, const std::vector<std::string>& moves_str) {
   SharedLock lock(busy_mutex_);
   search_.reset();
+  active_responder_.reset();
 
   UpdateFromUciOptions();
 
@@ -321,11 +324,33 @@ void EngineController::Go(const GoParams& params) {
   }
 
   auto stopper = time_manager_->GetStopper(params, *tree_.get());
-  search_ = std::make_unique<Search>(
-      tree_.get(), network_.get(), std::move(responder),
-      StringsToMovelist(params.searchmoves, tree_->HeadPosition().GetBoard()),
-      *move_start_time_, std::move(stopper), params.infinite, params.ponder,
-      options_, &cache_, syzygy_tb_.get());
+  active_responder_ = std::move(responder);
+
+  auto best_move_cb = std::bind(&UciResponder::SendBestMove, active_responder_.get(), std::placeholders::_1);
+  auto thinking_cb = std::bind(&UciResponder::SendInfo, active_responder_.get(), std::placeholders::_1);
+
+  SearchLimits search_limits;
+  search_limits.searchmoves = StringsToMovelist(params.searchmoves, tree_->HeadPosition().GetBoard());
+  search_limits.infinite = params.infinite;
+  search_limits.ponder = params.ponder;
+  search_limits.depth = params.depth;
+  search_limits.movetime = params.movetime; // From GoParams
+  search_limits.visits = params.nodes;     // From GoParams
+  // Set search_limits.time_ms: Use wtime/btime if movetime is not set.
+  if (params.movetime > 0) {
+    search_limits.time_ms = -1;
+  } else {
+    search_limits.time_ms = tree_->HeadPosition().IsWhiteToMove() ? params.wtime : params.btime;
+    if (search_limits.time_ms == 0) search_limits.time_ms = -1; // Treat 0ms time as not set, similar to movetime.
+  }
+  // The old Search constructor took move_start_time_ and stopper, the new one expects these to be part of SearchLimits.
+  // The stopper from time_manager already encapsulates complex time management logic (wtime, btime, movetime, inc, nodes, etc.)
+  // We will pass the stopper directly. The Search object will then own the stopper.
+  search_limits.stopper = std::move(stopper);
+  search_limits.start_time = *move_start_time_;
+
+
+  search_ = std::make_unique<Search>(*tree_, network_.get(), best_move_cb, thinking_cb, search_limits, options_, &cache_, syzygy_tb_.get());
 
   LOGFILE << "Timer started at "
           << FormatTime(SteadyClockToSystemClock(*move_start_time_));

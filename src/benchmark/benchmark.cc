@@ -32,6 +32,7 @@
 #include "mcts/search.h"
 #include "mcts/stoppers/factory.h"
 #include "mcts/stoppers/stoppers.h"
+#include "mcts/params.h"
 
 namespace lczero {
 namespace {
@@ -97,7 +98,7 @@ void Benchmark::Run() {
       NNCache cache;
       cache.SetCapacity(option_dict.Get<int>(kNNCacheSizeId));
 
-      NodeTree tree; // Use default constructor
+      NodeStore tree(SearchParams(option_dict));
       tree.ResetToPosition(position, {});
 
       SearchLimits limits;

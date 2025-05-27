@@ -446,8 +446,8 @@ void LowNode::FinalizeScoreUpdate(float v, float d, float m, float vs,
 
 
 void LowNode::AdjustForTerminal(float v, float d, float m, float vs,
-                                uint32_t multivisit, float multiweight) {
-  assert(static_cast<uint32_t>(multivisit) <= n_);
+                                float multiweight) {
+  // multivisit and its assertion are removed
 
 
   if (cht_entry_ != nullptr)
@@ -493,8 +493,8 @@ void Node::FinalizeScoreUpdate(float v, float d, float m, float vs,
 }
 
 void Node::AdjustForTerminal(float v, float d, float m, float vs,
-                             uint32_t multivisit, float multiweight) {
-  assert(static_cast<uint32_t>(multivisit) <= n_);
+                             float multiweight) {
+  // multivisit and its assertion are removed
 
   // Recompute Q.
   wl_ += multiweight * v / weight_;
@@ -739,8 +739,7 @@ static constexpr float m_tolerance = 0.000001f;
   }
 
 #else
-
-  static bool WLDMInvariantsHold(float wl, float d, float m) {
+  static bool WLDMInvariantsHold([[maybe_unused]] float wl, [[maybe_unused]] float d, [[maybe_unused]] float m) {
 		return true;
 	} 
 
