@@ -771,3 +771,17 @@ if get_option('python_bindings')
     subdir: 'lczero',
     install: true)
 endif
+
+#############################################################################
+## Standalone Node Test (Thompson Sampling)
+#############################################################################
+node_test_exe = executable('node_test', 'src/mcts/node_test.cc',
+  files, # Re-use the common 'files' array which should contain Node, Edge, Params etc.
+         # Or, more precisely, link with lc0_lib if it's suitable and already built.
+         # For simplicity in adding, let's assume 'files' is okay,
+         # but ideally this should link to a library form of lc0_lib.
+         # If lc0_lib is built only inside gtest block, we might need to define it earlier.
+  include_directories: includes,
+  dependencies: deps
+)
+test('NodeThompsonSamplingTest', node_test_exe, timeout: 120)

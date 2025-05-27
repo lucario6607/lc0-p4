@@ -160,6 +160,21 @@ void EngineController::UpdateFromUciOptions() {
   // Cache size.
   cache_.SetCapacity(options_.Get<int>(kNNCacheSizeId));
 
+  // Thompson Sampling options
+  // These are set here because UpdateFromUciOptions is called when options change
+  // and also during NewGame/SetupPosition, ensuring Node static members are updated.
+  bool use_ts = options_.Get<bool>(SearchParams::kUseBetaBernoulliId); // Use the OptionId from SearchParams
+  Node::SetThompsonSampling(use_ts);
+
+  // Retrieve PolicyTemperature (for TS) which was defined as kPolicyTemperatureTSId in SearchParams
+  // The UCI option name for this is "PolicyTemperature"
+  float ts_policy_temp = options_.Get<float>(SearchParams::kPolicyTemperatureTSId); // Use the OptionId
+  Node::SetPolicyTemperature(static_cast<double>(ts_policy_temp));
+  
+  // Note: The "ThompsonFPU" value is read by the search algorithm directly from 
+  // SearchParams. No specific call from EngineController is needed here for FPU, 
+  // as long as SearchParams is up-to-date when a search begins.
+
   // Check whether we can update the move timer in "Go".
   strict_uci_timing_ = options_.Get<bool>(kStrictUciTiming);
 }

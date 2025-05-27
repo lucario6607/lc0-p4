@@ -33,9 +33,13 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
+#include <iostream> // For std::cout in LogThompsonStats (if inline)
 #include <memory>
 #include <mutex>
+#include <atomic>
+#include <random>
+#include <string> // For std::string in LogThompsonStats
+#include <vector> 
 
 #include "chess/board.h"
 #include "chess/callbacks.h"
@@ -264,7 +268,15 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false) {}
+        repetition_(false) {
+          if (use_thompson_sampling_) { // Initialize Beta parameters if TS is enabled
+            // alpha = 1 + P * temp_strength
+            // beta  = 1 + (1-P) * temp_strength
+            // policy_temperature_ acts as temp_strength
+            beta_alpha_.store(1.0 + static_cast<double>(edge_.GetP()) * policy_temperature_);
+            beta_beta_.store(1.0 + (1.0 - static_cast<double>(edge_.GetP())) * policy_temperature_);
+          }
+        }
   ~Node() { UnsetLowNode(); }
 
   // Trim node, resetting everything except parent, sibling, edge and index.
@@ -308,7 +320,7 @@ class Node {
   float GetVS() const { return vs_; }
   float GetWeight() const { return weight_; }
   float GetTotalWeight() const { return weight_; }
-  float GetAvgWeight() const { return weight_ / n_; }
+  float GetAvgWeight() const { return (n_ > 0) ? weight_ / n_ : 0.0f; } // Avoid division by zero
   float GetE() const { return e_; }
   // return low node's v
   float GetV() const;
@@ -413,6 +425,24 @@ class Node {
 
   bool WLDMInvariantsHold() const;
 
+  // Thompson Sampling selection methods
+  double SampleBeta() const;
+  void UpdateBeta(double game_result);
+  double GetBetaMean() const;
+  double GetBetaUncertainty() const;
+
+  // Advanced Optimizations
+  static std::vector<double> BatchSampleBeta(const std::vector<Node*>& children);
+  double GetAdaptiveTemperature() const;
+
+  // Monitoring and Debugging
+  void LogThompsonStats() const;
+
+  // Configuration methods
+  static void SetThompsonSampling(bool enable) { use_thompson_sampling_ = enable; }
+  static void SetPolicyTemperature(double temp) { policy_temperature_ = temp; }
+  static bool IsThompsonSamplingEnabled() { return use_thompson_sampling_; }
+
  private:
   // To minimize the number of padding bytes and to avoid having unnecessary
   // padding when new fields are added, we arrange the fields by size, largest
@@ -472,6 +502,16 @@ class Node {
   // Edge was handled as a repetition at some point.
   bool repetition_ : 1;
 
+  // Beta distribution parameters for Thompson Sampling
+  std::atomic<double> beta_alpha_{1.0};
+  std::atomic<double> beta_beta_{1.0};
+
+  // Thread-safe random number generator for sampling
+  static thread_local std::mt19937 rng_;
+
+  // Configuration flags
+  static bool use_thompson_sampling_;
+  static double policy_temperature_;
 };
 
 // Check that Node still fits into an expected cache line size.
@@ -1145,3 +1185,5 @@ class NodeTree {
 };
 
 }  // namespace lczero
+
+[end of src/mcts/node.h]

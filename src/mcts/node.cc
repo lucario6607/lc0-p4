@@ -1,4 +1,4 @@
-  /*
+/*
   This file is part of Leela Chess Zero.
   Copyright (C) 2018 The LCZero Authors
 
@@ -39,11 +39,20 @@
 #include <sstream>
 #include <thread>
 #include <unordered_set>
+#include <vector> // Ensured for std::vector
 
 #include "utils/exception.h"
 #include "utils/hashcat.h"
 
+// <cmath> is included above, <random> for rng_
+// #include <cmath>  // For std::gamma_distribution, std::log // Already included
+// #include <random> // For std::random_device, std::mt19937 // Already included
+
 namespace lczero {
+
+thread_local std::mt19937 Node::rng_(std::random_device{}());
+bool Node::use_thompson_sampling_ = false;
+double Node::policy_temperature_ = 1.0;
 
 /////////////////////////////////////////////////////////////////////////
 // Edge
@@ -152,6 +161,23 @@ void Node::Trim(GCQueue* gc_queue) {
   lower_bound_ = GameResult::BLACK_WON;
   upper_bound_ = GameResult::WHITE_WON;
   repetition_ = false;
+  // Reset beta params to default, though not strictly necessary if node is re-initialized
+  beta_alpha_.store(1.0, std::memory_order_relaxed);
+  beta_beta_.store(1.0, std::memory_order_relaxed);
+}
+
+Node::Node(const Edge& edge, uint16_t index)
+    : edge_(edge),
+      index_(index),
+      terminal_type_(Terminal::NonTerminal),
+      lower_bound_(GameResult::BLACK_WON),
+      upper_bound_(GameResult::WHITE_WON),
+      repetition_(false) {
+  if (use_thompson_sampling_ && edge_.GetP() > 0.0f) {
+    double prior_strength = policy_temperature_;
+    beta_alpha_.store(1.0 + edge_.GetP() * prior_strength, std::memory_order_relaxed);
+    beta_beta_.store(1.0 + (1.0 - edge_.GetP()) * prior_strength, std::memory_order_relaxed);
+  }
 }
 
 Node* Node::GetChild() const {
@@ -944,4 +970,115 @@ bool NodeTree::TTGCSome(size_t count) {
   return gc_queue_.empty();
 }
 
+double Node::SampleBeta() const {
+    if (!use_thompson_sampling_) {
+        // Fallback: This path should ideally not be hit if Search.cc handles the branching.
+        // If it is hit, it means Node itself is supposed to provide a UCB score.
+        // Placeholder: return Q value or Policy if unvisited.
+        if (GetN() == 0) return GetP() + 0.1; // Policy + FPU for unvisited
+        return GetWL(); // Existing Q value for visited
+    }
+
+    if (GetN() == 0) { // Unvisited node with Thompson Sampling
+        double prior = GetP();
+        return prior + 0.1; // Small FPU-like bonus
+    }
+
+    double alpha = beta_alpha_.load(std::memory_order_relaxed);
+    double beta = beta_beta_.load(std::memory_order_relaxed);
+
+    std::gamma_distribution<double> gamma_alpha(alpha, 1.0);
+    std::gamma_distribution<double> gamma_beta(beta, 1.0);
+
+    double x = gamma_alpha(rng_);
+    double y = gamma_beta(rng_);
+
+    if (x + y < 1e-10) return 0.5; // Avoid division by zero
+
+    return x / (x + y);
+}
+
+void Node::UpdateBeta(double game_result) {
+    if (!use_thompson_sampling_) return;
+
+    double prob = (game_result + 1.0) / 2.0; // Assuming game_result is -1, 0, or 1
+
+    double current_alpha = beta_alpha_.load(std::memory_order_relaxed);
+    while (!beta_alpha_.compare_exchange_weak(current_alpha, current_alpha + prob,
+                                              std::memory_order_acq_rel, std::memory_order_relaxed)) {
+        // Retry
+    }
+
+    double current_beta = beta_beta_.load(std::memory_order_relaxed);
+    while (!beta_beta_.compare_exchange_weak(current_beta, current_beta + (1.0 - prob),
+                                             std::memory_order_acq_rel, std::memory_order_relaxed)) {
+        // Retry
+    }
+}
+
+double Node::GetBetaMean() const {
+    double alpha = beta_alpha_.load(std::memory_order_relaxed);
+    double beta = beta_beta_.load(std::memory_order_relaxed);
+    if (alpha + beta < 1e-10) return 0.5; // Avoid division by zero
+    return alpha / (alpha + beta);
+}
+
+double Node::GetBetaUncertainty() const {
+    double alpha = beta_alpha_.load(std::memory_order_relaxed);
+    double beta = beta_beta_.load(std::memory_order_relaxed);
+    double total = alpha + beta;
+    if (total < 1e-10) return 0.0; // Avoid division by zero for variance calculation
+    double total_plus_1 = total + 1.0;
+    if (total_plus_1 < 1e-10) return 0.0; // Should not happen if total > 0
+    // Variance of a Beta distribution
+    return (alpha * beta) / (total * total * total_plus_1);
+}
+
+// Batch sample Beta distributions for a list of child nodes.
+std::vector<double> Node::BatchSampleBeta(const std::vector<Node*>& children) {
+    std::vector<double> samples;
+    if (children.empty()) {
+        return samples;
+    }
+    samples.resize(children.size());
+
+    for (size_t i = 0; i < children.size(); ++i) {
+        if (children[i] != nullptr) {
+            samples[i] = children[i]->SampleBeta();
+        } else {
+            // Assign a default/neutral sample value for nullptrs if they can occur.
+            // Or ensure the caller guarantees non-null children.
+            samples[i] = 0.0; 
+        }
+    }
+    return samples;
+}
+
+// Get adaptive policy temperature based on node visits.
+double Node::GetAdaptiveTemperature() const {
+    double base_temp = Node::policy_temperature_; // Static base temperature
+
+    if (base_temp <= 0.0) {
+        return 0.0; // Or some other default for non-positive base temperature
+    }
+
+    // GetN() returns uint32_t.
+    // Add 1.0 to avoid log(0) if GetN() is 0.
+    double visit_factor = std::log(1.0 + static_cast<double>(GetN())) / 10.0; 
+                                    // Division by 10.0 is arbitrary, as per issue description.
+
+    double denominator = 1.0 + visit_factor;
+    
+    // Safety check for the denominator
+    if (std::abs(denominator) < 1e-9) { 
+        // Avoid division by zero or by a very small number.
+        // Return base_temp or a capped value if this occurs.
+        return base_temp; 
+    }
+    
+    return base_temp / denominator;
+}
+
 }  // namespace lczero
+
+[end of src/mcts/node.cc]
