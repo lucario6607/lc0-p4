@@ -230,6 +230,10 @@ class SearchParams {
   float GetCorrectionHistoryAlpha() const { return kCorrectionHistoryAlpha; }
   float GetCorrectionHistoryLambda() const { return kCorrectionHistoryLambda; }
 
+  bool GetUseBetaBernoulli() const { return kUseBetaBernoulli; }
+  float GetPolicyTemperatureTS() const { return kPolicyTemperatureTS; }
+  float GetThompsonFPU() const { return kThompsonFPU; }
+
 
   // Search parameter IDs.
   static const OptionId kMiniBatchSizeId;
@@ -348,6 +352,10 @@ class SearchParams {
   static const OptionId kCorrectionHistoryAlphaId;
   static const OptionId kCorrectionHistoryLambdaId;
 
+  static const OptionId kUseBetaBernoulliId;
+  static const OptionId kPolicyTemperatureTSId;
+  static const OptionId kThompsonFPUId;
+
 
 
  private:
@@ -450,7 +458,9 @@ class SearchParams {
   const float kCorrectionHistoryAlpha;
   const float kCorrectionHistoryLambda;
 
-
+  const bool kUseBetaBernoulli;
+  const float kPolicyTemperatureTS;
+  const float kThompsonFPU;
 };
 
 }  // namespace lczero
