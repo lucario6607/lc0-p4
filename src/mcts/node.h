@@ -36,6 +36,8 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <atomic>
+#include <random>
 
 #include "chess/board.h"
 #include "chess/callbacks.h"
@@ -413,6 +415,17 @@ class Node {
 
   bool WLDMInvariantsHold() const;
 
+  // Thompson Sampling selection methods
+  double SampleBeta() const;
+  void UpdateBeta(double game_result);
+  double GetBetaMean() const;
+  double GetBetaUncertainty() const;
+
+  // Configuration methods
+  static void SetThompsonSampling(bool enable) { use_thompson_sampling_ = enable; }
+  static void SetPolicyTemperature(double temp) { policy_temperature_ = temp; }
+  static bool IsThompsonSamplingEnabled() { return use_thompson_sampling_; }
+
  private:
   // To minimize the number of padding bytes and to avoid having unnecessary
   // padding when new fields are added, we arrange the fields by size, largest
@@ -472,6 +485,16 @@ class Node {
   // Edge was handled as a repetition at some point.
   bool repetition_ : 1;
 
+  // Beta distribution parameters for Thompson Sampling
+  std::atomic<double> beta_alpha_{1.0};
+  std::atomic<double> beta_beta_{1.0};
+
+  // Thread-safe random number generator for sampling
+  static thread_local std::mt19937 rng_;
+
+  // Configuration flags
+  static bool use_thompson_sampling_;
+  static double policy_temperature_;
 };
 
 // Check that Node still fits into an expected cache line size.
