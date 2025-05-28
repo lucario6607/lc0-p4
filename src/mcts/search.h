@@ -41,6 +41,7 @@
 #include "mcts/node.h"
 #include "mcts/params.h"
 #include "mcts/stoppers/timemgr.h"
+#include "mcts/value_head_enhanced_spm.h" // Added include
 #include "neural/cache.h"
 #include "syzygy/syzygy.h"
 #include "utils/logging.h"
@@ -206,6 +207,7 @@ class Search {
       GUARDED_BY(nodes_mutex_);
 
   std::unique_ptr<UciResponder> uci_responder_;
+  std::unique_ptr<ValueHeadEnhancedSPM> value_head_spm_; // Added member
   ContemptMode contempt_mode_;
   friend class SearchWorker;
 };

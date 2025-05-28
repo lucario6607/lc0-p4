@@ -33,6 +33,7 @@
 
 #include "mcts/search.h"
 #include "mcts/stoppers/factory.h"
+#include "mcts/value_head_enhanced_spm.h" // Added include
 #include "utils/commandline.h"
 #include "utils/configfile.h"
 #include "utils/logging.h"
@@ -100,6 +101,7 @@ void EngineController::PopulateOptions(OptionsParser* options) {
   options->Add<IntOption>(kThreadsOptionId, 1, 128) = kDefaultThreads;
   options->Add<IntOption>(kNNCacheSizeId, 0, 999999999) = 2000;
   SearchParams::Populate(options);
+  AddValueHeadSPMOptions(options); // Added options population call
 
   ConfigFile::PopulateOptions(options);
   if (is_simple) {
