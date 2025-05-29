@@ -37,6 +37,7 @@
 #include <memory>
 #include <sstream>
 #include <thread>
+#include <unordered_set> // Added for std::unordered_set
 
 #include "mcts/node.h"
 #include "utils/fastmath.h"
@@ -167,9 +168,12 @@ Search::Search(NodeTree* dag, Network* network,
       searchmoves_(searchmoves),
       start_time_(start_time),
       initial_visits_(root_node_->GetN()),
-      root_move_filter_(MakeRootMoveFilter(
+      root_move_filter_(MakeRootMoveFilter( // This remains MoveList
           searchmoves_, syzygy_tb_, played_history_,
           params_.GetSyzygyFastPlay(), &tb_hits_, &root_is_in_dtz_)),
+      // root_move_filter_set_ would be declared in search.h as std::unordered_set<Move>
+      // Initialize root_move_filter_set_ from root_move_filter_ (MoveList)
+      root_move_filter_set_(root_move_filter_.begin(), root_move_filter_.end()),
       uci_responder_(std::move(uci_responder)) {
   if (params_.GetMaxConcurrentSearchers() != 0) {
     pending_searchers_.store(params_.GetMaxConcurrentSearchers(),
@@ -576,17 +580,6 @@ inline float ComputeWeight(const SearchParams& params, float uncertainty) {
   return fmin(cap, coefficient * pow(uncertainty, exponent));
 }
 
-inline float ComputePolicyDecayFactor(const SearchParams& params, uint32_t N) {
-  const float exponent = params.GetPolicyDecayExponent();
-  const float proportionality_factor = params.GetPolicyDecayFactor();
-  return (exponent == 0.0f || proportionality_factor == 0.0f)
-             ? 1.0f
-             : FastExp(-FastLog(1.0f + proportionality_factor * N) * exponent);
-}
-inline float ComputePolicyDecay(const float factor, const float pol) {
-  return factor == 1.0f ? pol : pol / (pol + (1.0f - pol) * factor);
-}
-
 }  // namespace
 
 std::vector<std::string> Search::GetVerboseStats(Node* node) const {
@@ -612,8 +605,7 @@ std::vector<std::string> Search::GetVerboseStats(Node* node) const {
   auto print = [](auto* oss, auto pre, auto v, auto post, auto w, int p = 0) {
     *oss << pre << std::setw(w) << std::setprecision(p) << v << post;
   };
-  auto print_head = [&](auto* oss, auto label, int i, auto n, auto f, auto p,
-                        auto c) {
+  auto print_head = [&](auto* oss, auto label, int i, auto n, auto f, auto p) {
     *oss << std::fixed;
     print(oss, "", label, " ", 5);
     print(oss, "(", i, ") ", 4);
@@ -621,7 +613,6 @@ std::vector<std::string> Search::GetVerboseStats(Node* node) const {
     print(oss, "N: ", n, " ", 7);
     print(oss, "(+", f, ") ", 2);
     print(oss, "(P: ", p * 100, "%) ", 5, p >= 0.99995f ? 1 : 2);
-    print(oss, "C: ", c, " ", 4);
   };
   auto print_stats = [&](auto* oss, const auto* n) {
     const auto sign = n == node ? -1 : 1;
@@ -696,7 +687,7 @@ std::vector<std::string> Search::GetVerboseStats(Node* node) const {
     // TODO: should this be displaying transformed index?
     print_head(&oss, edge.GetMove(is_black_to_move).as_string(),
                edge.GetMove().as_nn_index(0), edge.GetN(), edge.GetNInFlight(),
-               edge.GetP(), edge.GetCheck());
+               edge.GetP());
     print_stats(&oss, edge.node());
     print(&oss, "(U: ", edge.GetU(U_coeff), ") ", 6, 5);
     print(&oss, "(S: ", Q + edge.GetU(U_coeff) + M, ") ", 8, 5);
@@ -707,7 +698,7 @@ std::vector<std::string> Search::GetVerboseStats(Node* node) const {
   // Include stats about the node in similar format to its children above.
   std::ostringstream oss;
   print_head(&oss, "node ", node->GetNumEdges(), node->GetN(),
-             node->GetNInFlight(), node->GetVisitedPolicy(), false);
+             node->GetNInFlight(), node->GetVisitedPolicy());
   print_stats(&oss, node);
   print_tail(&oss, node);
 
@@ -884,9 +875,8 @@ std::vector<EdgeAndNode> Search::GetBestChildrenNoTemperature(Node* parent,
   //   * If that number is larger than 0, the one with larger eval wins.
   std::vector<EdgeAndNode> edges;
   for (auto& edge : parent->Edges()) {
-    if (parent == root_node_ && !root_move_filter_.empty() &&
-        std::find(root_move_filter_.begin(), root_move_filter_.end(),
-                  edge.GetMove()) == root_move_filter_.end()) {
+    if (parent == root_node_ && !root_move_filter_set_.empty() && // Use set
+        root_move_filter_set_.find(edge.GetMove()) == root_move_filter_set_.end()) { // Use set
       continue;
     }
     edges.push_back(edge);
@@ -989,9 +979,8 @@ EdgeAndNode Search::GetBestRootChildWithTemperature(float temperature) const {
       GetFpu(params_, root_node_, /* is_root= */ true, draw_score);
 
   for (auto& edge : root_node_->Edges()) {
-    if (!root_move_filter_.empty() &&
-        std::find(root_move_filter_.begin(), root_move_filter_.end(),
-                  edge.GetMove()) == root_move_filter_.end()) {
+    if (!root_move_filter_set_.empty() && // Use set
+        root_move_filter_set_.find(edge.GetMove()) == root_move_filter_set_.end()) { // Use set
       continue;
     }
     if (edge.GetWeight() + offset > max_weight) {
@@ -1004,9 +993,8 @@ EdgeAndNode Search::GetBestRootChildWithTemperature(float temperature) const {
   const float min_eval =
       max_eval - params_.GetTemperatureWinpctCutoff() / 50.0f;
   for (auto& edge : root_node_->Edges()) {
-    if (!root_move_filter_.empty() &&
-        std::find(root_move_filter_.begin(), root_move_filter_.end(),
-                  edge.GetMove()) == root_move_filter_.end()) {
+    if (!root_move_filter_set_.empty() && // Use set
+        root_move_filter_set_.find(edge.GetMove()) == root_move_filter_set_.end()) { // Use set
       continue;
     }
     if (edge.GetQ(fpu, draw_score) < min_eval) continue;
@@ -1026,9 +1014,8 @@ EdgeAndNode Search::GetBestRootChildWithTemperature(float temperature) const {
       cumulative_sums.begin();
 
   for (auto& edge : root_node_->Edges()) {
-    if (!root_move_filter_.empty() &&
-        std::find(root_move_filter_.begin(), root_move_filter_.end(),
-                  edge.GetMove()) == root_move_filter_.end()) {
+    if (!root_move_filter_set_.empty() && // Use set
+        root_move_filter_set_.find(edge.GetMove()) == root_move_filter_set_.end()) { // Use set
       continue;
     }
     if (edge.GetQ(fpu, draw_score) < min_eval) continue;
@@ -1784,7 +1771,8 @@ void SearchWorker::PickNodesToExtendTask(
   bool is_root_node = node == search_->root_node_;
   const float even_draw_score = search_->GetDrawScore(false);
   const float odd_draw_score = search_->GetDrawScore(true);
-  const auto& root_move_filter = search_->root_move_filter_;
+  // Use the unordered_set for filtering root moves
+  const auto& root_filter_set = search_->root_move_filter_set_; 
   auto m_evaluator = moves_left_support_ ? MEvaluator(params_) : MEvaluator();
 
   int max_limit = std::numeric_limits<int>::max();
@@ -1869,8 +1857,6 @@ void SearchWorker::PickNodesToExtendTask(
       const float draw_score =
           (full_path.size() % 2 == 0) ? odd_draw_score : even_draw_score;
       m_evaluator.SetParent(node);
-      const float policy_decay_factor =
-          ComputePolicyDecayFactor(params_, node->GetWeight());
       float visited_pol = 0.0f;
       for (Node* child : node->VisitedNodes()) {
         int index = child->Index();
@@ -1950,14 +1936,8 @@ void SearchWorker::PickNodesToExtendTask(
           if (idx > cache_filled_idx) {
             float p = cur_iters[idx].GetP();
 
-            p = ComputePolicyDecay(policy_decay_factor, p);
             // a small hack to reduce policy on bad moves
             if (p < 0.01f) p /= 3;
-            //if (cur_iters[idx].GetWL(0.0f) < -0.995) p /= 5;
-            //else if (cur_iters[idx].GetWL(0.0f) < -0.99) p /= 3;
-            //else if (cur_iters[idx].GetWL(0.0f) < -0.95) p /= 2;
-
-
 
             // only boost visited nodes
 						if (visited[idx]) {
@@ -1967,12 +1947,7 @@ void SearchWorker::PickNodesToExtendTask(
               if (util >= min_policy_boost_util_t2) {
                 p = std::max(p, policy_boost_t2);
               }
-
-              if (cur_iters[idx].GetWL(-999.0f) > -node->GetWL() &&
-                  cur_iters[idx].GetWeight() < node->GetWeight() / 3)
-                p *= 1.4;
             }
-
 
             
             current_score[idx] =
@@ -1991,9 +1966,8 @@ void SearchWorker::PickNodesToExtendTask(
               continue;
             }
             // If root move filter exists, make sure move is in the list.
-            if (!root_move_filter.empty() &&
-                std::find(root_move_filter.begin(), root_move_filter.end(),
-                          cur_iters[idx].GetMove()) == root_move_filter.end()) {
+            if (!root_filter_set.empty() && // Use set for check
+                root_filter_set.find(cur_iters[idx].GetMove()) == root_filter_set.end()) { // Use set for find
               continue;
             }
           }
@@ -2527,14 +2501,14 @@ void SearchWorker::DoBackupUpdateSingleNode(
 
     float wl_corrected = nl->GetWL();
     if (use_correction_history && !nl->IsTwin() && !nl->IsTerminal()) {
-      wl_corrected += ch_lambda * ch_delta;
+      wl_corrected -= ch_lambda * ch_delta;
       wl_corrected = std::clamp(wl_corrected, -1.0f, 1.0f);
     }
 
     nl->FinalizeScoreUpdate(
        wl_corrected, nl->GetD(), nl->GetM(), nl->GetVS(),
         node_to_process.multivisit,
-        node_to_process.multivisit * avg_weight, false);
+        node_to_process.multivisit * avg_weight);
 
         // for testing cht is per node
     if (ntp_cht_entry != nullptr && !nl->IsTwin()) {
