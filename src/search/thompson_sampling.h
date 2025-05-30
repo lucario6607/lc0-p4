@@ -6,7 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <atomic>
-#include "search/search.h"
+#include "mcts/search.h"
 #include "mcts/node.h"
 #include "mcts/params.h"
 #include "neural/cache.h"
