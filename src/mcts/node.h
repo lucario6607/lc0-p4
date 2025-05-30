@@ -41,7 +41,7 @@
 #include "chess/callbacks.h"
 #include "chess/position.h"
 #include "mcts/params.h"
-#include "mcts/thompson_sampling.h" // Add this include
+// Removed thompson_sampling.h include as the file is missing.
 #include "utils/mutex.h"
 #include <random> // Add this include for std::mt19937
 
@@ -260,8 +260,8 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false),
-        thompson_stats_(1.0f, 1.0f) // Initialize here
+        repetition_(false)
+        // thompson_stats_ removed.
   {}
   // Takes own @edge and @index in the parent.
   Node(const Edge& edge, uint16_t index)
@@ -270,8 +270,8 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false),
-        thompson_stats_(1.0f, 1.0f) // Initialize here
+        repetition_(false)
+        // thompson_stats_ removed.
   {}
   ~Node() { UnsetLowNode(); }
 
@@ -421,20 +421,7 @@ class Node {
 
   bool WLDMInvariantsHold() const;
 
-  // Thompson Sampling interface
-  void InitializeThompsonStats(float alpha_prior, float beta_prior) {
-      thompson_stats_ = BetaBernoulliStats(alpha_prior, beta_prior);
-  }
-
-  void UpdateThompsonStats(float value) {
-      thompson_stats_.Update(value);
-  }
-
-  float SampleThompsonValue(std::mt19937& rng) const {
-      return thompson_stats_.Sample(rng);
-  }
-
-  BetaBernoulliStats GetThompsonStats() const { return thompson_stats_; }
+  // Thompson Sampling interface removed due to missing thompson_sampling.h
 
  private:
   // To minimize the number of padding bytes and to avoid having unnecessary
@@ -494,8 +481,7 @@ class Node {
   GameResult upper_bound_ : 2;
   // Edge was handled as a repetition at some point.
   bool repetition_ : 1;
-
-  BetaBernoulliStats thompson_stats_; // Add this
+  // thompson_stats_ removed.
 };
 
 // Check that Node still fits into an expected cache line size.

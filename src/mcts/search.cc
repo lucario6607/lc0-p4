@@ -39,7 +39,7 @@
 #include <thread>
 
 #include "mcts/node.h"
-#include "mcts/thompson_sampling.h" // Add this include
+// Removed thompson_sampling.h include as the file is missing.
 #include "utils/fastmath.h"
 #include "utils/random.h"
 #include "utils/spinhelper.h"
@@ -1238,20 +1238,6 @@ Search::~Search() {
 //////////////////////////////////////////////////////////////////////////////
 // SearchWorker
 //////////////////////////////////////////////////////////////////////////////
-SearchWorker::SearchWorker(Search* search, const SearchParams& params, int id)
-    : search_(search),
-      history_(search_->played_history_),
-      params_(params),
-      moves_left_support_(search_->network_->GetCapabilities().moves_left !=
-                          pblczero::NetworkFormat::MOVES_LEFT_NONE),
-      rng_((params.GetThompsonSeed() == 0) ? std::random_device()() : params.GetThompsonSeed()) {
-  search_->network_->InitThread(id);
-  for (int i = 0; i < params.GetTaskWorkersPerSearchWorker(); i++) {
-    task_workspaces_.emplace_back();
-    task_threads_.emplace_back([this, i]() { this->RunTasks(i); });
-  }
-}
-
 void SearchWorker::RunTasks(int tid) {
   while (true) {
     PickTask* task = nullptr;
@@ -1945,82 +1931,8 @@ void SearchWorker::PickNodesToExtendTask(
       int cache_filled_idx = -1;
       while (cur_limit > 0) {
         int best_idx = -1;
-        if (params_.GetUseThompsonSampling()) {
-            // Thompson Sampling Logic
-            float best_sample = -std::numeric_limits<float>::infinity();
-            best_edge.Reset(); // Clear previous best_edge
-
-            for (int idx = 0; idx < max_needed; ++idx) {
-                if (idx > cache_filled_idx) {
-                    if (idx == 0) { cur_iters[idx] = node->Edges(); }
-                    else { cur_iters[idx] = cur_iters[idx - 1]; ++cur_iters[idx]; }
-                }
-                // Ensure child_node_candidate is valid and initialized for TS
-                Node* child_node_candidate = cur_iters[idx].GetOrSpawnNode(node);
-                
-                // Initialize Thompson Stats for new nodes if TS is active
-                if (child_node_candidate->GetN() == 0 && child_node_candidate->GetNInFlight() == 0) {
-                    child_node_candidate->InitializeThompsonStats(
-                        params_.GetThompsonAlphaPrior(),
-                        params_.GetThompsonBetaPrior()
-                    );
-                }
-                
-                float sample = child_node_candidate->SampleThompsonValue(rng_);
-                
-                if (sample > best_sample) {
-                    best_sample = sample;
-                    best_edge = cur_iters[idx];
-                    best_idx = idx;
-                }
-            }
-            // After loop, best_edge and best_idx point to the TS-selected child.
-            // For pure Thompson Sampling, new_visits is 1.
-            // The concepts of second_best and estimated_visits_to_change_best are less direct.
-            // We simplify by setting new_visits to 1 and proceeding.
-            int new_visits = 1;
-            if (cur_limit < new_visits) new_visits = cur_limit; // Should not happen if cur_limit starts > 0
-
-            if (best_idx >= vtp_last_filled.back()) {
-                auto* vtp_array = visits_to_perform.back().get()->data();
-                std::fill(vtp_array + (vtp_last_filled.back() + 1), vtp_array + best_idx + 1, 0);
-            }
-            (*visits_to_perform.back())[best_idx] += new_visits;
-            cur_limit -= new_visits;
-
-            Node* child_node = best_edge.GetOrSpawnNode(/* parent */ node);
-            history.Append(best_edge.GetMove());
-            auto [child_repetitions, child_moves_left] = GetRepetitions(full_path.size(), history.Last());
-            full_path.push_back({child_node, child_repetitions, child_moves_left});
-
-            if (child_node->TryStartScoreUpdate()) {
-                // current_weightstarted might not be maintained for TS in the same way,
-                // but if it's used by other logic, it needs an update.
-                // For TS, effectively one visit is started.
-                if (best_idx > cache_filled_idx) { // Ensure current_weightstarted is populated for best_idx
-                     current_weightstarted[best_idx] = cur_iters[best_idx].GetWeightStarted();
-                }
-                current_weightstarted[best_idx]++; 
-                new_visits -=1; // One visit is "consumed" by TryStartScoreUpdate
-
-                if (ShouldStopPickingHere(child_node, false, child_repetitions)) {
-                    (*visits_to_perform.back())[best_idx] -= 1; // Correct the count
-                    receiver->push_back(NodeToProcess::Visit(full_path, history));
-                    completed_visits++;
-                } else {
-                     // If there were more "new_visits" planned (not typical for pure TS), increment NInFlight.
-                    if (new_visits > 0) child_node->IncrementNInFlight(new_visits);
-                }
-            }
-            if (best_idx > vtp_last_filled.back() && (*visits_to_perform.back())[best_idx] > 0) {
-                 vtp_last_filled.back() = best_idx;
-            }
-            history.Pop();
-            full_path.pop_back();
-
-        } else {
-            // Existing PUCT based selection logic
-            float best = std::numeric_limits<float>::lowest();
+        // Existing PUCT based selection logic
+        float best = std::numeric_limits<float>::lowest();
             float best_without_u = std::numeric_limits<float>::lowest();
             float second_best = std::numeric_limits<float>::lowest();
             bool can_exit = false;
@@ -2038,12 +1950,7 @@ void SearchWorker::PickNodesToExtendTask(
               
               Node* child_node_candidate = cur_iters[idx].GetOrSpawnNode(node);
               // Initialize Thompson Stats for new nodes if TS is active (this check might be redundant if TS is globally off here, but safe)
-              if (params_.GetUseThompsonSampling() && child_node_candidate->GetN() == 0 && child_node_candidate->GetNInFlight() == 0) {
-                  child_node_candidate->InitializeThompsonStats(
-                      params_.GetThompsonAlphaPrior(),
-                      params_.GetThompsonBetaPrior()
-                  );
-              }
+              // Thompson Sampling related code removed.
 
               float weightstarted = current_weightstarted[idx];
               const float util = current_util[idx];
@@ -2172,7 +2079,7 @@ void SearchWorker::PickNodesToExtendTask(
             }
             history.Pop();
             full_path.pop_back();
-        }
+        // Removed Thompson Sampling else block.
       }
       is_root_node = false;
       // Actively do any splits now rather than waiting for potentially long
@@ -2670,12 +2577,7 @@ void SearchWorker::DoBackupUpdateSingleNode(
         node_to_process.multivisit * avg_weight);
 
     // Add Thompson Sampling update for node 'n'
-    if (params_.GetUseThompsonSampling()) {
-        // 'v' is the value from the perspective of the player whose move led to 'n'.
-        // It's correctly signed before the v = -v flip for the parent.
-        // The value needs to be scaled from [-1, 1] to [0, 1] for BetaBernoulliStats.
-        n->UpdateThompsonStats((v + 1.0f) / 2.0f);
-    }
+    // Thompson Sampling related code removed.
 
     if (n_to_fix > 0 && !n->IsTerminal()) {
       // First part of the path might be never as it was removed and recreated.
