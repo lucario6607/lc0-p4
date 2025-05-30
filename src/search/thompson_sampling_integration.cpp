@@ -4,7 +4,7 @@
 #include "thompson_sampling.h"
 #include "engine.h"
 #include "utils/optionsdict.h"
-#include "search/search.h" // Required for MakeDefaultSearch declaration
+#include "mcts/search.h" // Required for MakeDefaultSearch declaration
 
 // Add this include if MakeDefaultSearch is not found by the line above.
 // #include "search_factory.h" 
