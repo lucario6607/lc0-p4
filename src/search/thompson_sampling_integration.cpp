@@ -15,6 +15,7 @@
 #include <memory> // Required for std::unique_ptr
 #include <cmath> // Required for std::log, std::sqrt
 #include <limits> // Required for std::numeric_limits
+#include <functional> // Added for std::function
 
 // Forward declaration for GetEngineOptions, assuming it's defined elsewhere
 // and returns a pointer to OptionsDict. If it's in a specific header,
@@ -36,10 +37,10 @@ extern OptionsDict* GetEngineOptions(); // Ensure this declaration matches Lc0's
 // It's often found in a file like search_factory.cpp or search.cpp.
 // Updated to match new callback types and removal of SearchLimits.
 std::unique_ptr<Search> MakeDefaultSearch(
-    NodeTree& tree, // Changed to non-const
+    NodeTree& tree, 
     Network* network,
-    lczero::BestMoveCallback best_move_callback, // Changed type
-    lczero::ThinkingCallback info_callback,     // Changed type
+    std::function<void(const lczero::BestMoveInfo&)> best_move_callback, // Explicit std::function
+    std::function<void(const std::vector<lczero::ThinkingInfo>&)> info_callback, // Explicit std::function
     const OptionsDict& options,
     NNCache* cache,
     SyzygyTablebase* syzygy_tb);
@@ -103,11 +104,11 @@ void AddThompsonSamplingOptions(OptionsDict* options) {
 }
 
 // Modified search factory to support Thompson Sampling
-// Updated signature: NodeTree&, specific callbacks, SearchLimits removed.
-std::unique_ptr<Search> MakeSearch(NodeTree& tree, // Changed to non-const
+// Updated signature: NodeTree&, explicit std::function callbacks, SearchLimits removed.
+std::unique_ptr<Search> MakeSearch(NodeTree& tree, 
                                   Network* network,
-                                  lczero::BestMoveCallback best_move_callback, // Changed type
-                                  lczero::ThinkingCallback info_callback,     // Changed type
+                                  std::function<void(const lczero::BestMoveInfo&)> best_move_callback, // Explicit std::function
+                                  std::function<void(const std::vector<lczero::ThinkingInfo>&)> info_callback, // Explicit std::function
                                   const OptionsDict& options,
                                   NNCache* cache,
                                   SyzygyTablebase* syzygy_tb) {

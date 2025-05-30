@@ -26,7 +26,7 @@
 */
 
 #include "engine.h"
-#include "search/thompson_sampling.h" // Added for Thompson Sampling
+#include "search/thompson_sampling_integration.h" // Added for Thompson Sampling
 
 #include <algorithm>
 #include <cmath>

@@ -10,12 +10,13 @@
 #include <limits> // Added for std::numeric_limits
 #include <string> // Added for std::string
 #include <cmath>  // Added for std::sqrt, std::log
-#include "mcts/search.h"
+#include <functional> // Added for std::function
+#include "search/search.h"
 #include "mcts/node.h"
 #include "mcts/params.h"
 #include "neural/cache.h"
 #include "utils/optionsdict.h"
-#include "chess/callbacks.h" // Added for BestMoveCallback, ThinkingCallback
+#include "chess/callbacks.h" // For lczero::BestMoveInfo, lczero::ThinkingInfo
 
 namespace lczero {
 
@@ -41,15 +42,15 @@ struct ThompsonSamplingParams {
 
 class ThompsonSamplingSearch : public Search {
  public:
-  ThompsonSamplingSearch(lczero::NodeTree& tree, // Changed to non-const ref
+  ThompsonSamplingSearch(lczero::NodeTree& tree, 
                         lczero::Network* network,
-                        lczero::BestMoveCallback best_move_callback, // Correct type
-                        lczero::ThinkingCallback info_callback,     // Correct type
+                        std::function<void(const lczero::BestMoveInfo&)> best_move_callback,
+                        std::function<void(const std::vector<lczero::ThinkingInfo>&)> info_callback,
                         const lczero::OptionsDict& options,
                         lczero::NNCache* cache,
                         lczero::SyzygyTablebase* syzygy_tb);
 
-  ~ThompsonSamplingSearch() override = default;
+  ~ThompsonSamplingSearch() = default; // Removed override for diagnostics
 
   // Main search methods
   void StartThreads(size_t how_many); // Removed override
@@ -94,7 +95,7 @@ class ThompsonSamplingSearch : public Search {
   
   // Random number generation
   thread_local static std::mt19937 rng_;
-  thread_local static std::beta_distribution<float> beta_dist_;
+  // thread_local static std::beta_distribution<float> beta_dist_; // Commented for diagnostics
   
   // Search statistics
   std::atomic<uint64_t> nodes_searched_{0};
@@ -110,8 +111,8 @@ class ThompsonSamplingSearch : public Search {
   SyzygyTablebase* syzygy_tb_;
   
   // Search limits and callbacks (limits_ removed)
-  lczero::BestMoveCallback best_move_callback_; // Correct type
-  lczero::ThinkingCallback info_callback_;     // Correct type
+  std::function<void(const lczero::BestMoveInfo&)> best_move_callback_;
+  std::function<void(const std::vector<lczero::ThinkingInfo>&)> info_callback_;
   
   // Node tree
   lczero::NodeTree& tree_; // Changed to non-const ref
@@ -119,13 +120,13 @@ class ThompsonSamplingSearch : public Search {
 
 // Thread-local random number generator initialization
 thread_local std::mt19937 ThompsonSamplingSearch::rng_(std::random_device{}());
-thread_local std::beta_distribution<float> ThompsonSamplingSearch::beta_dist_;
+// thread_local std::beta_distribution<float> ThompsonSamplingSearch::beta_dist_; // Commented for diagnostics
 
 ThompsonSamplingSearch::ThompsonSamplingSearch(
-    lczero::NodeTree& tree, // Changed to non-const ref
+    lczero::NodeTree& tree, 
     lczero::Network* network,
-    lczero::BestMoveCallback best_move_callback, // Correct type
-    lczero::ThinkingCallback info_callback,     // Correct type
+    std::function<void(const lczero::BestMoveInfo&)> best_move_callback,
+    std::function<void(const std::vector<lczero::ThinkingInfo>&)> info_callback,
     const lczero::OptionsDict& options,
     lczero::NNCache* cache,
     lczero::SyzygyTablebase* syzygy_tb)
@@ -261,7 +262,7 @@ Node* ThompsonSamplingSearch::SelectChildThompsonSampling(Node* node) {
   float best_sample = -std::numeric_limits<float>::infinity();
 
   for (lczero::Node::Iterator it = node->Edges().begin(); it != node->Edges().end(); ++it) {
-    lczero::Node* child = it->node();
+    lczero::Node* child = it.node(); // Changed it->node() to it.node()
     if (!child) {
         continue; 
     }
@@ -304,8 +305,9 @@ float ThompsonSamplingSearch::SampleFromBeta(float alpha, float beta) {
   }
   
   // Use thread-local beta distribution
-  beta_dist_.param(std::beta_distribution<float>::param_type(alpha, beta));
-  return beta_dist_(rng_);
+  // beta_dist_.param(std::beta_distribution<float>::param_type(alpha, beta)); // Commented for diagnostics
+  // return beta_dist_(rng_); // Commented for diagnostics
+  return 0.5f; // Temporary fallback
 }
 
 Node* ThompsonSamplingSearch::SelectChildUCB(Node* node) {
@@ -318,7 +320,7 @@ Node* ThompsonSamplingSearch::SelectChildUCB(Node* node) {
   if (parent_visits == 0) parent_visits = 1; // Avoid log(0)
 
   for (lczero::Node::Iterator it = node->Edges().begin(); it != node->Edges().end(); ++it) {
-    lczero::Node* child = it->node();
+    lczero::Node* child = it.node(); // Changed it->node() to it.node()
     if (!child) {
         continue;
     }
@@ -431,13 +433,13 @@ const std::vector<std::string>& ThompsonSamplingSearch::GetVerboseStats() const 
 
 // Factory function to create Thompson Sampling search
 // Note: SearchLimits removed from parameters.
-// Callbacks changed to lczero::BestMoveCallback and lczero::ThinkingCallback.
+// Callbacks changed to explicit std::function types.
 // NodeTree changed to lczero::NodeTree&.
 std::unique_ptr<Search> MakeThompsonSamplingSearch(
-    lczero::NodeTree& tree, // Changed to non-const ref
+    lczero::NodeTree& tree, 
     lczero::Network* network,
-    lczero::BestMoveCallback best_move_callback, // Correct type
-    lczero::ThinkingCallback info_callback,     // Correct type
+    std::function<void(const lczero::BestMoveInfo&)> best_move_callback,
+    std::function<void(const std::vector<lczero::ThinkingInfo>&)> info_callback,
     const lczero::OptionsDict& options,
     lczero::NNCache* cache,
     lczero::SyzygyTablebase* syzygy_tb) {
