@@ -11,7 +11,7 @@
 #include <string> // Added for std::string
 #include <cmath>  // Added for std::sqrt, std::log
 #include <functional> // Added for std::function
-#include "search/search.h"
+#include "mcts/search.h"
 #include "mcts/node.h"
 #include "mcts/params.h"
 #include "neural/cache.h"
