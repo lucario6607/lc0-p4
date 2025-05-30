@@ -163,6 +163,7 @@ files += [
   'src/lc0ctl/describenet.cc',
   'src/lc0ctl/leela2onnx.cc',
   'src/lc0ctl/onnx2leela.cc',
+  'src/mcts/bayesian_stats.cc',
   'src/mcts/beta_bernoulli_stats.cc',
   'src/mcts/node.cc',
   'src/mcts/params.cc',

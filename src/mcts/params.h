@@ -33,6 +33,19 @@
 
 namespace lczero {
 
+// Engine options for Enhanced Thompson Sampling
+struct EnhancedThompsonSearchOptions {
+    bool use_enhanced_thompson = false;
+    float value_uncertainty_weight = 0.1f;
+    float policy_concentration = 10.0f;
+    float min_visits_for_uncertainty = 5.0f; // Changed from int to float to match existing FloatOption
+    uint32_t thompson_seed = 0;             // 0 = random seed
+
+    // Traditional PUCT options (for fallback)
+    float cpuct = 1.25f;
+    float fpu_reduction = 0.25f; // Renamed from fpu_value for clarity with existing FPU options
+};
+
 enum class ContemptMode { PLAY, WHITE, BLACK, NONE };
 
 class SearchParams {
@@ -183,6 +196,7 @@ class SearchParams {
   float GetThompsonAlphaPrior() const { return kThompsonAlphaPrior; }
   float GetThompsonBetaPrior() const { return kThompsonBetaPrior; }
   uint32_t GetThompsonSeed() const { return kThompsonSeed; }
+  const EnhancedThompsonSearchOptions& GetEnhancedThompsonSearchOptions() const { return enhanced_ts_options_; }
 
 
 
@@ -358,6 +372,14 @@ class SearchParams {
   static const OptionId kThompsonBetaPriorId;
   static const OptionId kThompsonSeedId;
 
+  static const OptionId kUseEnhancedThompsonId;
+  static const OptionId kValueUncertaintyWeightId;
+  static const OptionId kPolicyConcentrationId;
+  static const OptionId kMinVisitsForUncertaintyId;
+  static const OptionId kEnhancedThompsonSeedId;
+  static const OptionId kNewCpuctId;
+  static const OptionId kNewFPUReductionId;
+
  private:
   const OptionsDict& options_;
   // Cached parameter values. Values have to be cached if either:
@@ -462,6 +484,8 @@ class SearchParams {
   const float kThompsonAlphaPrior;
   const float kThompsonBetaPrior;
   const uint32_t kThompsonSeed;
+
+  EnhancedThompsonSearchOptions enhanced_ts_options_;
 };
 
 }  // namespace lczero

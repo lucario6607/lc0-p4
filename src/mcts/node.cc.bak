@@ -382,7 +382,7 @@ void LowNode::FinalizeScoreUpdate(float v, float d, float m, float vs,
   assert(edges_);
 
 
-    
+
   if (cht_entry_ != nullptr && parent_visit) {
     cht_entry_->deltaSum -= (wl_ - v_) * GetCorrectionWeight(children_weight_);
     cht_entry_->weightSum +=
@@ -454,7 +454,6 @@ void Node::FinalizeScoreUpdate(float v, float d, float m, float vs,
   d_ += multiweight * (d - d_) / (weight_ + multiweight);
   m_ += multiweight * (m - m_) / (weight_ + multiweight);
   vs_ += multiweight * (vs - vs_) / (weight_ + multiweight);
-  UpdateValueTracker(v);
 
   assert(WLDMInvariantsHold());
 
@@ -476,7 +475,6 @@ void Node::AdjustForTerminal(float v, float d, float m, float vs,
   d_ += multiweight * d / weight_;
   m_ += multiweight * m / weight_;
   vs_ += multiweight * vs / weight_;
-  UpdateValueTracker(v);
 
 
   assert(WLDMInvariantsHold());
@@ -718,7 +716,7 @@ static constexpr float m_tolerance = 0.000001f;
 
   static bool WLDMInvariantsHold(float wl, float d, float m) {
 		return true;
-	} 
+	}
 
 #endif
 
@@ -946,39 +944,21 @@ bool NodeTree::TTGCSome(size_t count) {
   return gc_queue_.empty();
 }
 
-void Node::UpdateValueTracker(float value) {
-    value_tracker_.Update(value);
+// Thompson sampling related methods
+void Node::InitializeThompsonStats(float alpha_prior, float beta_prior) {
+    thompson_stats_ = BetaBernoulliStats(alpha_prior, beta_prior);
 }
 
-void Node::InitializeChildPolicy(const std::vector<float>& policy_probs, float concentration) {
-    policy_tracker_ = BayesianPolicyTracker(concentration);
-    policy_tracker_.Initialize(policy_probs);
+void Node::UpdateThompsonStats(float value) {
+    thompson_stats_.Update(value);
 }
 
-void Node::UpdateChildPolicyBelief(size_t child_index, float confidence) {
-    if (IsChildPolicyInitialized()) { // Only update if initialized
-        policy_tracker_.UpdateBestMove(child_index, confidence);
-    }
+float Node::SampleThompsonValue(std::mt19937& rng) const {
+    return thompson_stats_.Sample(rng);
 }
 
-std::vector<float> Node::GetChildPolicyPosterior() const {
-    return policy_tracker_.GetPosteriorMean();
-}
-
-bool Node::IsChildPolicyInitialized() const {
-    return policy_tracker_.IsInitialized();
-}
-
-float Node::GetValueUncertainty() const {
-    return value_tracker_.GetStandardError();
-}
-
-float Node::GetSampledValue(std::mt19937& rng) const {
-    return value_tracker_.SampleValue(rng);
-}
-
-float Node::GetMeanValue() const {
-    return value_tracker_.GetMean();
+BetaBernoulliStats Node::GetThompsonStats() const {
+    return thompson_stats_;
 }
 
 }  // namespace lczero

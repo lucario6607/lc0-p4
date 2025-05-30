@@ -36,15 +36,10 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <vector>               // For std::vector
-#include <cmath>                // For std::sqrt
-#include <random>               // For std::mt19937
 
 #include "chess/board.h"
-#include "mcts/bayesian_stats.h" // For ValueUncertaintyTracker, BayesianPolicyTracker
 #include "mcts/beta_bernoulli_stats.h"
 #include "chess/callbacks.h"
-// Ensure "mcts/params.h" is included (it should be already)
 #include "chess/position.h"
 #include "mcts/params.h"
 #include "utils/mutex.h"
@@ -262,7 +257,8 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false) {}
+        repetition_(false),
+        thompson_stats_() {}
   // Takes own @edge and @index in the parent.
   Node(const Edge& edge, uint16_t index)
       : edge_(edge),
@@ -270,7 +266,8 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false) {}
+        repetition_(false),
+        thompson_stats_() {}
   ~Node() { UnsetLowNode(); }
 
   // Trim node, resetting everything except parent, sibling, edge and index.
@@ -419,16 +416,11 @@ class Node {
 
   bool WLDMInvariantsHold() const;
 
-  void UpdateValueTracker(float value);
-
-  void InitializeChildPolicy(const std::vector<float>& policy_probs, float concentration);
-  void UpdateChildPolicyBelief(size_t child_index, float confidence);
-  std::vector<float> GetChildPolicyPosterior() const;
-  bool IsChildPolicyInitialized() const;
-
-  float GetValueUncertainty() const;
-  float GetSampledValue(std::mt19937& rng) const;
-  float GetMeanValue() const;
+  // Thompson sampling related methods
+  void InitializeThompsonStats(float alpha_prior, float beta_prior);
+  void UpdateThompsonStats(float value);
+  float SampleThompsonValue(std::mt19937& rng) const;
+  BetaBernoulliStats GetThompsonStats() const;
 
  private:
   // To minimize the number of padding bytes and to avoid having unnecessary
@@ -461,7 +453,7 @@ class Node {
 
   // Estimated remaining plies.
   float m_ = 0.0f;
-	
+
 	float e_ = 0.0f;
 
   // How many completed visits this node had.
@@ -489,8 +481,7 @@ class Node {
   // Edge was handled as a repetition at some point.
   bool repetition_ : 1;
 
-  ValueUncertaintyTracker value_tracker_;
-  BayesianPolicyTracker policy_tracker_;
+  BetaBernoulliStats thompson_stats_;
 };
 
 // Check that Node still fits into an expected cache line size.
@@ -516,7 +507,7 @@ class LowNode {
         d_(p.d_),
         m_(p.m_),
         vs_(p.vs_),
-        e_(p.e_), 
+        e_(p.e_),
         num_edges_(p.num_edges_),
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
@@ -537,7 +528,7 @@ class LowNode {
         d_(p.d_),
         m_(p.m_),
         vs_(p.vs_),
-        e_(p.e_), 
+        e_(p.e_),
         num_edges_(p.num_edges_),
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
@@ -1104,7 +1095,7 @@ class NodeTree {
   std::pair<LowNode*, bool> TTGetOrCreate(uint64_t hash);
 
   CorrHistEntry* CHTGetOrCreate(uint64_t hash);
-   
+
   std::pair<LowNode*, bool> TTGetOrCreate(const LowNode& p, uint64_t hash);
 
   // Evict unused low nodes from the Transposition Table.
@@ -1131,7 +1122,7 @@ class NodeTree {
     return history.CHHash();
   }
 
-  
+
 
 
  private:

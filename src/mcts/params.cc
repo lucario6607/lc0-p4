@@ -560,7 +560,28 @@ const OptionId SearchParams::kUseThompsonSamplingId("UseThompsonSampling", "UseT
 const OptionId SearchParams::kThompsonAlphaPriorId("ThompsonAlphaPrior", "ThompsonAlphaPrior", "Alpha prior for Thompson Sampling Beta distribution.", ' ');
 const OptionId SearchParams::kThompsonBetaPriorId("ThompsonBetaPrior", "ThompsonBetaPrior", "Beta prior for Thompson Sampling Beta distribution.", ' ');
 const OptionId SearchParams::kThompsonSeedId("ThompsonSeed", "ThompsonSeed", "Seed for Thompson Sampling RNG (0 for random).", ' ');
-	
+
+const OptionId SearchParams::kUseEnhancedThompsonId{
+    "UseEnhancedThompson", "Use Enhanced Thompson Sampling", "UseEnhancedThompson",
+    "", false, BoolOption::ValueType(false)};
+const OptionId SearchParams::kValueUncertaintyWeightId{
+    "ValueUncertaintyWeight", "Weight for value uncertainty in Enhanced Thompson Sampling", "ValueUncertaintyWeight",
+    "", 0.0f, 1.0f, FloatOption::ValueType(0.1f)};
+const OptionId SearchParams::kPolicyConcentrationId{
+    "PolicyConcentration", "Concentration parameter for policy in Enhanced Thompson Sampling", "PolicyConcentration",
+    "", 0.1f, 100.0f, FloatOption::ValueType(10.0f)};
+const OptionId SearchParams::kMinVisitsForUncertaintyId{
+    "MinVisitsForUncertainty", "Minimum visits to consider uncertainty in Enhanced Thompson Sampling", "MinVisitsForUncertainty",
+    "", 0.0f, 100.0f, FloatOption::ValueType(5.0f)};
+const OptionId SearchParams::kEnhancedThompsonSeedId{
+    "EnhancedThompsonSeed", "Seed for Enhanced Thompson sampling", "EnhancedThompsonSeed",
+    "", 0, IntOption::ValueType(0)};
+const OptionId SearchParams::kNewCpuctId{
+    "NewCpuct", "C_puct for PUCT fallback in Enhanced Thompson Sampling", "NewCpuct",
+    "", 0.0f, 10.0f, FloatOption::ValueType(1.25f)};
+const OptionId SearchParams::kNewFPUReductionId{
+    "NewFPUReduction", "FPU reduction for PUCT fallback in Enhanced Thompson Sampling", "NewFPUReduction",
+    "", 0.0f, 1.0f, FloatOption::ValueType(0.25f)};
 
 void SearchParams::Populate(OptionsParser* options) {
   // Here the uci optimized defaults" are set.
@@ -708,6 +729,13 @@ void SearchParams::Populate(OptionsParser* options) {
   options->Add<FloatOption>(kThompsonBetaPriorId, 0.0f, 1000.0f) = 1.0f;
   options->Add<IntOption>(kThompsonSeedId, 0, 0xFFFFFFFF) = 0;
 	
+  options->Add<BoolOption>(kUseEnhancedThompsonId, kUseEnhancedThompsonId.long_flag(), kUseEnhancedThompsonId.short_flag()) = kUseEnhancedThompsonId.default_value<BoolOption::ValueType>();
+  options->Add<FloatOption>(kValueUncertaintyWeightId, 0.0f, 1.0f, kValueUncertaintyWeightId.long_flag(), kValueUncertaintyWeightId.short_flag()) = kValueUncertaintyWeightId.default_value<FloatOption::ValueType>();
+  options->Add<FloatOption>(kPolicyConcentrationId, 0.1f, 100.0f, kPolicyConcentrationId.long_flag(), kPolicyConcentrationId.short_flag()) = kPolicyConcentrationId.default_value<FloatOption::ValueType>();
+  options->Add<FloatOption>(kMinVisitsForUncertaintyId, 0.0f, 100.0f, kMinVisitsForUncertaintyId.long_flag(), kMinVisitsForUncertaintyId.short_flag()) = kMinVisitsForUncertaintyId.default_value<FloatOption::ValueType>();
+  options->Add<IntOption>(kEnhancedThompsonSeedId, 0, std::numeric_limits<int>::max(), kEnhancedThompsonSeedId.long_flag(), kEnhancedThompsonSeedId.short_flag()) = kEnhancedThompsonSeedId.default_value<IntOption::ValueType>();
+  options->Add<FloatOption>(kNewCpuctId, 0.0f, 10.0f, kNewCpuctId.long_flag(), kNewCpuctId.short_flag()) = kNewCpuctId.default_value<FloatOption::ValueType>();
+  options->Add<FloatOption>(kNewFPUReductionId, 0.0f, 1.0f, kNewFPUReductionId.long_flag(), kNewFPUReductionId.short_flag()) = kNewFPUReductionId.default_value<FloatOption::ValueType>();
 
 
 
@@ -879,6 +907,14 @@ SearchParams::SearchParams(const OptionsDict& options)
       kUseThompsonSampling(options_.Get<bool>(kUseThompsonSamplingId)),
       kThompsonAlphaPrior(options_.Get<float>(kThompsonAlphaPriorId)),
       kThompsonBetaPrior(options_.Get<float>(kThompsonBetaPriorId)),
-      kThompsonSeed(static_cast<uint32_t>(options_.Get<int>(kThompsonSeedId))) {}
+      kThompsonSeed(static_cast<uint32_t>(options_.Get<int>(kThompsonSeedId))) {
+  enhanced_ts_options_.use_enhanced_thompson = options_.Get<bool>(kUseEnhancedThompsonId);
+  enhanced_ts_options_.value_uncertainty_weight = options_.Get<float>(kValueUncertaintyWeightId);
+  enhanced_ts_options_.policy_concentration = options_.Get<float>(kPolicyConcentrationId);
+  enhanced_ts_options_.min_visits_for_uncertainty = options_.Get<float>(kMinVisitsForUncertaintyId);
+  enhanced_ts_options_.thompson_seed = static_cast<uint32_t>(options_.Get<int>(kEnhancedThompsonSeedId));
+  enhanced_ts_options_.cpuct = options_.Get<float>(kNewCpuctId);
+  enhanced_ts_options_.fpu_reduction = options_.Get<float>(kNewFPUReductionId);
+}
 
 }  // namespace lczero

@@ -220,7 +220,6 @@ class SearchWorker {
       : search_(search),
         history_(search_->played_history_),
         params_(params),
-        worker_id_(id),
         moves_left_support_(search_->network_->GetCapabilities().moves_left !=
                             pblczero::NetworkFormat::MOVES_LEFT_NONE) {
     search_->network_->InitThread(id);
@@ -507,10 +506,6 @@ class SearchWorker {
   TaskWorkspace main_workspace_;
   bool exiting_ = false;
   mutable std::mt19937 rng_;
-  int worker_id_;
-  std::vector<float> parent_sampled_policy_;
-  bool parent_policy_sampled_this_iteration_;
-  Node* last_parent_node_for_policy_sampling_;
 };
 
 }  // namespace lczero
