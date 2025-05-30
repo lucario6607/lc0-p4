@@ -555,6 +555,19 @@ const OptionId SearchParams::kCorrectionHistoryAlphaId{
 const OptionId SearchParams::kCorrectionHistoryLambdaId{
     "correction-history-lambda", "CorrectionHistoryLambda",
     "Strength of correction history adjustment. [0,1]"};
+
+const OptionId SearchParams::kUseThompsonSamplingId{
+    "UseThompsonSampling", "UseThompsonSampling",
+    "Whether to use Thompson Sampling for exploration."};
+const OptionId SearchParams::kThompsonAlphaPriorId{
+    "ThompsonAlphaPrior", "ThompsonAlphaPrior",
+    "Alpha prior for Thompson Sampling."};
+const OptionId SearchParams::kThompsonBetaPriorId{
+    "ThompsonBetaPrior", "ThompsonBetaPrior",
+    "Beta prior for Thompson Sampling."};
+const OptionId SearchParams::kThompsonSeedId{
+    "ThompsonSeed", "ThompsonSeed",
+    "Seed for Thompson Sampling. 0 means random seed."};
 	
 
 void SearchParams::Populate(OptionsParser* options) {
@@ -697,6 +710,11 @@ void SearchParams::Populate(OptionsParser* options) {
   options->Add<BoolOption>(kUseCorrectionHistoryId) = false;
   options->Add<FloatOption>(kCorrectionHistoryAlphaId, 0, 1) = 1;
   options->Add<FloatOption>(kCorrectionHistoryLambdaId, 0, 1) = 0.3;
+
+  options->Add<BoolOption>(kUseThompsonSamplingId) = false;
+  options->Add<FloatOption>(kThompsonAlphaPriorId, 0.0f, 100.0f) = 1.0f;
+  options->Add<FloatOption>(kThompsonBetaPriorId, 0.0f, 100.0f) = 1.0f;
+  options->Add<IntOption>(kThompsonSeedId, 0, 2147483647) = 0;
 
 
 	
@@ -867,6 +885,10 @@ SearchParams::SearchParams(const OptionsDict& options)
 
 
       kEasyEvalWeightDecay(options.Get<float>(kEasyEvalWeightDecayId)),
-      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)) {}
+      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)),
+      use_thompson_sampling_(options.Get<bool>("UseThompsonSampling", false)),
+      thompson_alpha_prior_(options.Get<float>("ThompsonAlphaPrior", 1.0f)),
+      thompson_beta_prior_(options.Get<float>("ThompsonBetaPrior", 1.0f)),
+      thompson_seed_(options.Get<uint32_t>("ThompsonSeed", 0)) {}
 
 }  // namespace lczero

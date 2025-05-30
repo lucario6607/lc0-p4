@@ -31,6 +31,7 @@
 #include <condition_variable>
 #include <functional>
 #include <optional>
+#include <random> // Add this
 #include <shared_mutex>
 #include <thread>
 #include <tuple>
@@ -504,6 +505,8 @@ class SearchWorker {
   std::vector<TaskWorkspace> task_workspaces_;
   TaskWorkspace main_workspace_;
   bool exiting_ = false;
+
+  std::mt19937 rng_; // Add this for Thompson Sampling
 };
 
 }  // namespace lczero

@@ -450,7 +450,10 @@ class SearchParams {
   const float kCorrectionHistoryAlpha;
   const float kCorrectionHistoryLambda;
 
-
+  bool use_thompson_sampling_ = false;
+  float thompson_alpha_prior_ = 1.0f;
+  float thompson_beta_prior_ = 1.0f;
+  uint32_t thompson_seed_ = 0; // 0 = random seed
 };
 
 }  // namespace lczero
