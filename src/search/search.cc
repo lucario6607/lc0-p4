@@ -1,8 +1,8 @@
 // src/search/search.cc
 // Basic structure, assuming Lc0's search.cc might look something like this.
 
-#include "search/search.h" // Main header for search declarations
-#include "search/thompson_sampling_integration.h" // Required for the new MakeSearch
+#include "mcts/search.h" // Main header for search declarations
+#include "search/thompson_sampling.h" // Required for the new MakeSearch
 
 // Other typical includes for search.cc
 #include <memory>
