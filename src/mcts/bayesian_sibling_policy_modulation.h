@@ -5,8 +5,8 @@
 #include <vector>
 #include <cmath>
 #include <unordered_map>
-#include "../neural/cache.h"
-#include "node.h"
+#include "neural/cache.h"
+#include "mcts/node.h"
 
 namespace lczero {
 
