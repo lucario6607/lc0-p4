@@ -1,10 +1,11 @@
 // thompson_sampling_integration.cpp
 // Integration file to add Thompson Sampling to Leela Chess Zero
 
+#include "search/thompson_sampling_integration.h" // Include its own header
 #include "thompson_sampling.h"
 #include "engine.h"
 #include "utils/optionsdict.h"
-#include "mcts/search.h" // Required for MakeDefaultSearch declaration
+#include "search/search.h" // Required for MakeDefaultSearch declaration
 
 // Add this include if MakeDefaultSearch is not found by the line above.
 // #include "search_factory.h" 
