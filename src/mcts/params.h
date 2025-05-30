@@ -353,10 +353,10 @@ class SearchParams {
   static const OptionId kCorrectionHistoryAlphaId;
   static const OptionId kCorrectionHistoryLambdaId;
 
-  extern const OptionId kUseThompsonSamplingId;
-  extern const OptionId kThompsonAlphaPriorId;
-  extern const OptionId kThompsonBetaPriorId;
-  extern const OptionId kThompsonSeedId;
+  static const OptionId kUseThompsonSamplingId;
+  static const OptionId kThompsonAlphaPriorId;
+  static const OptionId kThompsonBetaPriorId;
+  static const OptionId kThompsonSeedId;
 
  private:
   const OptionsDict& options_;
