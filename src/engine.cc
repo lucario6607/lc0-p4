@@ -350,11 +350,6 @@ void EngineLoop::CmdUci() {
   for (const auto& option : options_.ListOptionsUci()) {
     SendResponse(option);
   }
-  // Add Thompson Sampling options
-  SendResponse("option name UseThompsonSampling type check default false");
-  SendResponse("option name ThompsonAlphaPrior type float default 1.0 min 0.01 max 1000.0");
-  SendResponse("option name ThompsonBetaPrior type float default 1.0 min 0.01 max 1000.0");
-  SendResponse("option name ThompsonSeed type spin default 0 min 0 max 4294967295");
   SendResponse("uciok");
 }
 
