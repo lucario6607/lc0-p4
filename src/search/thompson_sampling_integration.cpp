@@ -34,12 +34,12 @@ extern OptionsDict* GetEngineOptions(); // Ensure this declaration matches Lc0's
 // Declaration for MakeDefaultSearch, assuming it's the standard MCTS search factory.
 // This function's signature must match the one in Lc0.
 // It's often found in a file like search_factory.cpp or search.cpp.
+// Updated to match new callback types and removal of SearchLimits.
 std::unique_ptr<Search> MakeDefaultSearch(
-    const NodeTree& tree,
+    NodeTree& tree, // Changed to non-const
     Network* network,
-    BestMoveInfo::Callback best_move_callback,
-    ThinkingInfo::Callback info_callback,
-    const SearchLimits& limits,
+    lczero::BestMoveCallback best_move_callback, // Changed type
+    lczero::ThinkingCallback info_callback,     // Changed type
     const OptionsDict& options,
     NNCache* cache,
     SyzygyTablebase* syzygy_tb);
@@ -103,11 +103,11 @@ void AddThompsonSamplingOptions(OptionsDict* options) {
 }
 
 // Modified search factory to support Thompson Sampling
-std::unique_ptr<Search> MakeSearch(const NodeTree& tree,
+// Updated signature: NodeTree&, specific callbacks, SearchLimits removed.
+std::unique_ptr<Search> MakeSearch(NodeTree& tree, // Changed to non-const
                                   Network* network,
-                                  BestMoveInfo::Callback best_move_callback,
-                                  ThinkingInfo::Callback info_callback,
-                                  const SearchLimits& limits,
+                                  lczero::BestMoveCallback best_move_callback, // Changed type
+                                  lczero::ThinkingCallback info_callback,     // Changed type
                                   const OptionsDict& options,
                                   NNCache* cache,
                                   SyzygyTablebase* syzygy_tb) {
@@ -118,19 +118,20 @@ std::unique_ptr<Search> MakeSearch(const NodeTree& tree,
     if (!ValidateThompsonSamplingOptions(options)) {
         // Optionally, log an error or throw an exception
         std::cerr << "Invalid Thompson Sampling options. Falling back to default search." << std::endl;
-        // Fallback to default search if validation fails
+        // Fallback to default search if validation fails (limits removed)
         return MakeDefaultSearch(tree, network, best_move_callback,
-                                 info_callback, limits, options,
+                                 info_callback, options,
                                  cache, syzygy_tb);
     }
+    // Call MakeThompsonSamplingSearch (tree is already non-const, limits removed)
     return MakeThompsonSamplingSearch(tree, network, best_move_callback,
-                                     info_callback, limits, options,
+                                     info_callback, options,
                                      cache, syzygy_tb);
   }
   
-  // Otherwise, use the default search (MCTS)
+  // Otherwise, use the default search (MCTS) (limits removed)
   return MakeDefaultSearch(tree, network, best_move_callback,
-                          info_callback, limits, options,
+                          info_callback, options,
                           cache, syzygy_tb);
 }
 
