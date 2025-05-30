@@ -111,6 +111,8 @@ class ChessBoard {
   bool IsLegalMove(Move move, const KingAttackInfo& king_attack_info) const;
   // Returns whether two moves are actually the same move in the position.
   bool IsSameMove(Move move1, Move move2) const;
+  // Returns whether a move gives check
+  bool GivesCheck(Move move) const;
   // Returns the same move but with castling encoded in legacy way.
   Move GetLegacyMove(Move move) const;
   // Returns the same move but with castling encoded in modern way.
@@ -129,23 +131,19 @@ class ChessBoard {
   // and then uses piece count of rooks, knights, bishops, and queen for both sides
   uint64_t CHHash() const {
     return HashCat({
-      our_pieces_.as_int() & pawns_.as_int(),
+        our_pieces_.as_int() & pawns_.as_int(),
         their_pieces_.as_int() & pawns_.as_int(),
         our_king_.as_int(), their_king_.as_int(),
 
-        // below would count the number of each piece type on both sides
 
-        count_bits(rooks().as_int() & our_pieces_.as_int()),
+ /*       count_bits(rooks().as_int() & our_pieces_.as_int()),
         count_bits(rooks().as_int() & their_pieces_.as_int()),
         count_bits(bishops().as_int() & our_pieces_.as_int()),  
         count_bits(bishops().as_int() & their_pieces_.as_int()),
         count_bits(knights().as_int() & our_pieces_.as_int()),
         count_bits(knights().as_int() & their_pieces_.as_int()),
         count_bits(queens().as_int() & our_pieces_.as_int()),
-        count_bits(  queens().as_int() & their_pieces_.as_int()),
-
-
-
+        count_bits(  queens().as_int() & their_pieces_.as_int()),*/
     });
 
   }

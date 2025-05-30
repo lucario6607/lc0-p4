@@ -269,6 +269,14 @@ const OptionId SearchParams::kCacheHistoryLengthId{
     "this value is less than history that NN uses to eval a position, it's "
     "possble that the search will use eval of the same position with different "
     "history taken from cache."};
+const OptionId SearchParams::kPolicyDecayExponentId{
+    "policy-decay-exponent", "PolicyDecayExponent",
+    "Policy decay exponent. Sets the exponent of the visit based policy decay "
+    "term."};
+const OptionId SearchParams::kPolicyDecayFactorId{
+    "policy-decay-factor", "PolicyDecayFactor",
+    "Policy decay factor. Scales the visit count for the visit based policy "
+    "decay term."};
 const OptionId SearchParams::kPolicySoftmaxTempId{
     "policy-softmax-temp", "PolicyTemperature",
     "Policy softmax temperature. Higher values make priors of move candidates "
@@ -547,20 +555,25 @@ const OptionId SearchParams::kCorrectionHistoryAlphaId{
 const OptionId SearchParams::kCorrectionHistoryLambdaId{
     "correction-history-lambda", "CorrectionHistoryLambda",
     "Strength of correction history adjustment. [0,1]"};
+
+const OptionId SearchParams::kUseThompsonSamplingId("UseThompsonSampling", "UseThompsonSampling", "Whether to use Thompson Sampling for node selection.", ' ');
+const OptionId SearchParams::kThompsonAlphaPriorId("ThompsonAlphaPrior", "ThompsonAlphaPrior", "Alpha prior for Thompson Sampling Beta distribution.", ' ');
+const OptionId SearchParams::kThompsonBetaPriorId("ThompsonBetaPrior", "ThompsonBetaPrior", "Beta prior for Thompson Sampling Beta distribution.", ' ');
+const OptionId SearchParams::kThompsonSeedId("ThompsonSeed", "ThompsonSeed", "Seed for Thompson Sampling RNG (0 for random).", ' ');
 	
 
 void SearchParams::Populate(OptionsParser* options) {
   // Here the uci optimized defaults" are set.
   // Many of them are overridden with training specific values in tournament.cc.
   options->Add<IntOption>(kMiniBatchSizeId, 1, 1024) = DEFAULT_MINIBATCH_SIZE;
-  options->Add<FloatOption>(kCpuctId, 0.0f, 100.0f) = 2.9f;
-  options->Add<FloatOption>(kCpuctAtRootId, 0.0f, 100.0f) = 2.9f;
+  options->Add<FloatOption>(kCpuctId, 0.0f, 100.0f) = 1.745f;
+  options->Add<FloatOption>(kCpuctAtRootId, 0.0f, 100.0f) = 1.745f;
 	options->Add<FloatOption>(kCpuctExponentId, 0.0f, 1.0f) = 0.5f;
 	options->Add<FloatOption>(kCpuctExponentAtRootId, 0.0f, 1.0f) = 0.5f;
-  options->Add<FloatOption>(kCpuctBaseId, 1.0f, 1000000000.0f) = 45669.0f;
-  options->Add<FloatOption>(kCpuctBaseAtRootId, 1.0f, 1000000000.0f) = 45669.0f;
-  options->Add<FloatOption>(kCpuctFactorId, 0.0f, 1000.0f) = 3.973f;
-  options->Add<FloatOption>(kCpuctFactorAtRootId, 0.0f, 1000.0f) = 3.973f;
+  options->Add<FloatOption>(kCpuctBaseId, 1.0f, 1000000000.0f) = 38739.0f;
+  options->Add<FloatOption>(kCpuctBaseAtRootId, 1.0f, 1000000000.0f) = 38739.0f;
+  options->Add<FloatOption>(kCpuctFactorId, 0.0f, 1000.0f) = 3.894f;
+  options->Add<FloatOption>(kCpuctFactorAtRootId, 0.0f, 1000.0f) = 3.894f;
   options->Add<BoolOption>(kRootHasOwnCpuctParamsId) = false;
   options->Add<BoolOption>(kTwoFoldDrawsId) = true;
   options->Add<FloatOption>(kTemperatureId, 0.0f, 100.0f) = 0.0f;
@@ -577,12 +590,14 @@ void SearchParams::Populate(OptionsParser* options) {
   options->Add<BoolOption>(kLogLiveStatsId) = false;
   std::vector<std::string> fpu_strategy = {"reduction", "absolute"};
   options->Add<ChoiceOption>(kFpuStrategyId, fpu_strategy) = "reduction";
-  options->Add<FloatOption>(kFpuValueId, -100.0f, 100.0f) = 0.6f;
+  options->Add<FloatOption>(kFpuValueId, -100.0f, 100.0f) = 0.330f;
   fpu_strategy.push_back("same");
   options->Add<ChoiceOption>(kFpuStrategyAtRootId, fpu_strategy) = "same";
   options->Add<FloatOption>(kFpuValueAtRootId, -100.0f, 100.0f) = 1.0f;
   options->Add<IntOption>(kCacheHistoryLengthId, 0, 7) = 0;
-  options->Add<FloatOption>(kPolicySoftmaxTempId, 0.1f, 10.0f) = 1.4f;
+  options->Add<FloatOption>(kPolicySoftmaxTempId, 0.1f, 10.0f) = 1.359f;
+  options->Add<FloatOption>(kPolicyDecayExponentId, 0.0f, 10.0f) = 0.5f;
+  options->Add<FloatOption>(kPolicyDecayFactorId, 0.0f, 1.0f) = 0.0001f;
   options->Add<IntOption>(kMaxCollisionEventsId, 1, 65536) = 917;
   options->Add<IntOption>(kMaxCollisionVisitsId, 1, 100000000) = 80000;
   options->Add<IntOption>(kMaxCollisionVisitsScalingStartId, 1, 100000) = 28;
@@ -667,7 +682,7 @@ void SearchParams::Populate(OptionsParser* options) {
   options->Add<FloatOption>(kCpuctUncertaintyMaxUncertaintyId, 0.0f, 1.0f) =
       0.347f;
   options->Add<BoolOption>(kJustFpuUncertaintyId) = false;
-  options->Add<BoolOption>(kUseCpuctUncertaintyId) = true;
+  options->Add<BoolOption>(kUseCpuctUncertaintyId) = false;
 
   options->Add<FloatOption>(kDesperationMultiplierId, 0.0f, 100.0f) = 1.5f;
   options->Add<FloatOption>(kDesperationLowId, 0.0f, 1.0f) = 0.25f;
@@ -684,11 +699,14 @@ void SearchParams::Populate(OptionsParser* options) {
   options->Add<IntOption>(kTopPolicyTierTwoNumBoostId, 0, 8) = 0;
   options->Add<BoolOption>(kUsePolicyBoostingId) = true;
 
-  options->Add<BoolOption>(kUseCorrectionHistoryId) = true;
+  options->Add<BoolOption>(kUseCorrectionHistoryId) = false;
   options->Add<FloatOption>(kCorrectionHistoryAlphaId, 0, 1) = 1;
   options->Add<FloatOption>(kCorrectionHistoryLambdaId, 0, 1) = 0.3;
 
-
+  options->Add<BoolOption>(kUseThompsonSamplingId) = false;
+  options->Add<FloatOption>(kThompsonAlphaPriorId, 0.0f, 1000.0f) = 1.0f;
+  options->Add<FloatOption>(kThompsonBetaPriorId, 0.0f, 1000.0f) = 1.0f;
+  options->Add<IntOption>(kThompsonSeedId, 0, 0xFFFFFFFF) = 0;
 	
 
 
@@ -852,9 +870,15 @@ SearchParams::SearchParams(const OptionsDict& options)
       kUseCorrectionHistory(options.Get<bool>(kUseCorrectionHistoryId)),
       kCorrectionHistoryAlpha(options.Get<float>(kCorrectionHistoryAlphaId)),
       kCorrectionHistoryLambda(options.Get<float>(kCorrectionHistoryLambdaId)),
+      kPolicyDecayExponent(options.Get<float>(kPolicyDecayExponentId)),
+      kPolicyDecayFactor(options.Get<float>(kPolicyDecayFactorId)),
 
 
       kEasyEvalWeightDecay(options.Get<float>(kEasyEvalWeightDecayId)),
-      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)) {}
+      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)),
+      kUseThompsonSampling(options_.Get<bool>(kUseThompsonSamplingId)),
+      kThompsonAlphaPrior(options_.Get<float>(kThompsonAlphaPriorId)),
+      kThompsonBetaPrior(options_.Get<float>(kThompsonBetaPriorId)),
+      kThompsonSeed(static_cast<uint32_t>(options_.Get<int>(kThompsonSeedId))) {}
 
 }  // namespace lczero

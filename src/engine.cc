@@ -26,7 +26,6 @@
 */
 
 #include "engine.h"
-#include "search/thompson_sampling.h" // Added for Thompson Sampling
 
 #include <algorithm>
 #include <cmath>
@@ -91,10 +90,7 @@ EngineController::EngineController(std::unique_ptr<UciResponder> uci_responder,
                                    const OptionsDict& options)
     : options_(options),
       uci_responder_(std::move(uci_responder)),
-      current_position_{ChessBoard::kStartposFen, {}} {
-  // Register Thompson Sampling options
-  lczero::RegisterThompsonSamplingWithEngine(); // Added for Thompson Sampling
-}
+      current_position_{ChessBoard::kStartposFen, {}} {}
 
 void EngineController::PopulateOptions(OptionsParser* options) {
   using namespace std::placeholders;
@@ -354,6 +350,11 @@ void EngineLoop::CmdUci() {
   for (const auto& option : options_.ListOptionsUci()) {
     SendResponse(option);
   }
+  // Add Thompson Sampling options
+  SendResponse("option name UseThompsonSampling type check default false");
+  SendResponse("option name ThompsonAlphaPrior type float default 1.0 min 0.01 max 1000.0");
+  SendResponse("option name ThompsonBetaPrior type float default 1.0 min 0.01 max 1000.0");
+  SendResponse("option name ThompsonSeed type spin default 0 min 0 max 4294967295");
   SendResponse("uciok");
 }
 

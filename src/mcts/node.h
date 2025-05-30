@@ -38,6 +38,7 @@
 #include <mutex>
 
 #include "chess/board.h"
+#include "mcts/beta_bernoulli_stats.h"
 #include "chess/callbacks.h"
 #include "chess/position.h"
 #include "mcts/params.h"
@@ -172,6 +173,8 @@ class Edge {
   // Creates array of edges from the list of moves.
   static std::unique_ptr<Edge[]> FromMovelist(const MoveList& moves);
 
+  bool GetCheck() const;
+
   // Returns move from the point of view of the player making it (if as_opponent
   // is false) or as opponent (if as_opponent is true).
   Move GetMove(bool as_opponent = false) const;
@@ -254,7 +257,8 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false) {}
+        repetition_(false),
+        thompson_stats_() {}
   // Takes own @edge and @index in the parent.
   Node(const Edge& edge, uint16_t index)
       : edge_(edge),
@@ -262,7 +266,8 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false) {}
+        repetition_(false),
+        thompson_stats_() {}
   ~Node() { UnsetLowNode(); }
 
   // Trim node, resetting everything except parent, sibling, edge and index.
@@ -411,6 +416,12 @@ class Node {
 
   bool WLDMInvariantsHold() const;
 
+  // Thompson sampling related methods
+  void InitializeThompsonStats(float alpha_prior, float beta_prior);
+  void UpdateThompsonStats(float value);
+  float SampleThompsonValue(std::mt19937& rng) const;
+  BetaBernoulliStats GetThompsonStats() const;
+
  private:
   // To minimize the number of padding bytes and to avoid having unnecessary
   // padding when new fields are added, we arrange the fields by size, largest
@@ -431,7 +442,6 @@ class Node {
   // Averaged draw probability. Works similarly to WL, except that D is not
   // flipped depending on the side to move.
   double d_ = 0.0f;
-
 
   // 8 byte fields on 64-bit platforms, 4 byte on 32-bit.
   // Pointer to the low node.
@@ -471,6 +481,7 @@ class Node {
   // Edge was handled as a repetition at some point.
   bool repetition_ : 1;
 
+  BetaBernoulliStats thompson_stats_;
 };
 
 // Check that Node still fits into an expected cache line size.
@@ -623,7 +634,8 @@ class LowNode {
   // * N (+=multivisit)
   // * N-in-flight (-=multivisit)
   void FinalizeScoreUpdate(float v, float d, float m, float vs,
-                           uint32_t multivisit, float multiweight);
+                           uint32_t multivisit, float multiweight,
+                           bool parent_visit = true);
 
   // Like FinalizeScoreUpdate, but it updates n existing visits by delta amount.
   void AdjustForTerminal(float v, float d, float m, float vs,
@@ -694,6 +706,8 @@ class LowNode {
   // Averaged draw probability. Works similarly to WL, except that D is not
   // flipped depending on the side to move.
   double d_ = 0.0f;
+
+  float children_weight_ = 0.0f;
 
   // Position hash and a TT key.
   uint64_t hash_ = 0;
@@ -811,6 +825,8 @@ class EdgeAndNode {
   Move GetMove(bool flip = false) const {
     return edge_ ? edge_->GetMove(flip) : Move();
   }
+  bool GetCheck() const { return edge_->GetCheck(); }
+
 
   // Returns U = numerator * p / N.
   // Passed numerator is expected to be equal to (cpuct * sqrt(N[parent])).

@@ -1,4 +1,4 @@
-/*
+  /*
   This file is part of Leela Chess Zero.
   Copyright (C) 2018 The LCZero Authors
 
@@ -103,6 +103,8 @@ float Edge::GetP() const {
   return ret;
 }
 
+bool Edge::GetCheck() const { return move_.check(); }
+
 std::string Edge::DebugString() const {
   std::ostringstream oss;
   oss << "Move: " << move_.as_string() << " p_: " << p_ << " GetP: " << GetP();
@@ -172,6 +174,10 @@ uint32_t Node::GetNInFlight() const {
 uint32_t Node::GetChildrenVisits() const {
   return low_node_ ? low_node_->GetChildrenVisits() : 0;
 }
+
+
+inline double GetCorrectionWeight(double weight) { return pow(fmax(0, weight - 4.0f), 0.3); }
+
 
 uint32_t Node::GetTotalVisits() const {
   return low_node_ ? low_node_->GetN() : 0;
@@ -372,14 +378,16 @@ void Node::CancelScoreUpdate(uint32_t multivisit) {
 }
 
 void LowNode::FinalizeScoreUpdate(float v, float d, float m, float vs,
-                                  uint32_t multivisit, float multiweight) {
+                                  uint32_t multivisit, float multiweight, bool parent_visit) {
   assert(edges_);
 
 
     
-  if (cht_entry_ != nullptr) {
-    cht_entry_->weightSum += multiweight;
-    cht_entry_->deltaSum += multiweight * (v_ - v);
+  if (cht_entry_ != nullptr && parent_visit) {
+    cht_entry_->deltaSum -= (wl_ - v_) * GetCorrectionWeight(children_weight_);
+    cht_entry_->weightSum +=
+        GetCorrectionWeight(children_weight_ + multiweight) -
+        GetCorrectionWeight(children_weight_);
 
     ch_delta_ = (cht_entry_->weightSum > 0)
                     ? cht_entry_->deltaSum / cht_entry_->weightSum
@@ -392,13 +400,22 @@ void LowNode::FinalizeScoreUpdate(float v, float d, float m, float vs,
   m_ += multiweight * (m - m_) / (weight_ + multiweight);
   vs_ += multiweight * (vs - vs_) / (weight_ + multiweight);
 
+  // Increment N.
+  n_ += multivisit;
+  weight_ += multiweight;
+
+  if (parent_visit) children_weight_ += multiweight;
+
+  if (cht_entry_ != nullptr && parent_visit) {
+    cht_entry_->deltaSum +=
+      (wl_ - v_) * GetCorrectionWeight(children_weight_);
+  }
+
 
 
   assert(WLDMInvariantsHold());
 
-  // Increment N.
-  n_ += multivisit;
-  weight_ += multiweight;
+
 }
 
 
@@ -407,6 +424,8 @@ void LowNode::AdjustForTerminal(float v, float d, float m, float vs,
   assert(static_cast<uint32_t>(multivisit) <= n_);
 
 
+  if (cht_entry_ != nullptr)
+    cht_entry_->deltaSum -= (wl_ - v_) * GetCorrectionWeight(weight_);
 
   // Recompute Q.
   wl_ += multiweight * v / weight_;
@@ -414,8 +433,8 @@ void LowNode::AdjustForTerminal(float v, float d, float m, float vs,
   m_ += multiweight * m / weight_;
   vs_ += multiweight * vs / weight_;
 
-  if (cht_entry_ != nullptr ) {cht_entry_->deltaSum -= multiweight * v;
-  }
+  if (cht_entry_ != nullptr)
+    cht_entry_->deltaSum += (wl_ - v_) * GetCorrectionWeight(weight_);
 
 
 
@@ -923,6 +942,23 @@ bool NodeTree::TTGCSome(size_t count) {
   }
 
   return gc_queue_.empty();
+}
+
+// Thompson sampling related methods
+void Node::InitializeThompsonStats(float alpha_prior, float beta_prior) {
+    thompson_stats_ = BetaBernoulliStats(alpha_prior, beta_prior);
+}
+
+void Node::UpdateThompsonStats(float value) {
+    thompson_stats_.Update(value);
+}
+
+float Node::SampleThompsonValue(std::mt19937& rng) const {
+    return thompson_stats_.Sample(rng);
+}
+
+BetaBernoulliStats Node::GetThompsonStats() const {
+    return thompson_stats_;
 }
 
 }  // namespace lczero

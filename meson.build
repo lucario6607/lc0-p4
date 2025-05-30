@@ -162,7 +162,8 @@ files += [
   'src/engine.cc',
   'src/lc0ctl/describenet.cc',
   'src/lc0ctl/leela2onnx.cc',
-  'src/lc0ctl/onnx2leela.cc',  
+  'src/lc0ctl/onnx2leela.cc',
+  'src/mcts/beta_bernoulli_stats.cc',
   'src/mcts/node.cc',
   'src/mcts/params.cc',
   'src/mcts/search.cc',
@@ -210,8 +211,6 @@ files += [
   'src/utils/string.cc',
   'src/utils/weights_adapter.cc',
   'src/version.cc',
-  'src/search/thompson_sampling.h',
-  'src/search/thompson_sampling_integration.cpp',
 ]
 includes += include_directories('src')
 

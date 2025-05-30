@@ -179,6 +179,11 @@ class SearchParams {
 
 	bool GetJustFpuUncertainty() const { return kJustFpuUncertainty; }
 
+  bool GetUseThompsonSampling() const { return kUseThompsonSampling; }
+  float GetThompsonAlphaPrior() const { return kThompsonAlphaPrior; }
+  float GetThompsonBetaPrior() const { return kThompsonBetaPrior; }
+  uint32_t GetThompsonSeed() const { return kThompsonSeed; }
+
 
 
   bool GetUseVarianceScaling() const { return kUseVarianceScaling; }
@@ -205,6 +210,9 @@ class SearchParams {
   float GetDesperationHigh() const { return kDesperationHigh; }
   float GetDesperationPriorWeight() const { return kDesperationPriorWeight; }
   bool GetUseDesperation() const { return kUseDesperation;  }
+
+  float GetPolicyDecayExponent() const { return kPolicyDecayExponent; }
+  float GetPolicyDecayFactor() const { return kPolicyDecayFactor; }
 
 	
 
@@ -313,6 +321,9 @@ class SearchParams {
   static const OptionId kEasyEvalWeightDecayId;
   static const OptionId kSearchSpinBackoffId;
 
+  static const OptionId kPolicyDecayExponentId;
+  static const OptionId kPolicyDecayFactorId;
+
 
   static const OptionId kCpuctUncertaintyMinFactorId;
   static const OptionId kCpuctUncertaintyMaxFactorId;
@@ -342,7 +353,10 @@ class SearchParams {
   static const OptionId kCorrectionHistoryAlphaId;
   static const OptionId kCorrectionHistoryLambdaId;
 
-
+  extern const OptionId kUseThompsonSamplingId;
+  extern const OptionId kThompsonAlphaPriorId;
+  extern const OptionId kThompsonBetaPriorId;
+  extern const OptionId kThompsonSeedId;
 
  private:
   const OptionsDict& options_;
@@ -428,6 +442,9 @@ class SearchParams {
   const int kTopPolicyTierTwoNumBoost;
   const bool kUsePolicyBoosting;
 
+  const float kPolicyDecayExponent;
+  const float kPolicyDecayFactor;
+
 
   const float kDesperationMultiplier;
   const float kDesperationLow;
@@ -441,7 +458,10 @@ class SearchParams {
   const float kCorrectionHistoryAlpha;
   const float kCorrectionHistoryLambda;
 
-
+  const bool kUseThompsonSampling;
+  const float kThompsonAlphaPrior;
+  const float kThompsonBetaPrior;
+  const uint32_t kThompsonSeed;
 };
 
 }  // namespace lczero

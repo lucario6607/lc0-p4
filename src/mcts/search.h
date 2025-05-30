@@ -35,6 +35,7 @@
 #include <thread>
 #include <tuple>
 #include <vector>
+#include <random>
 
 #include "chess/callbacks.h"
 #include "chess/uciloop.h"
@@ -504,6 +505,7 @@ class SearchWorker {
   std::vector<TaskWorkspace> task_workspaces_;
   TaskWorkspace main_workspace_;
   bool exiting_ = false;
+  mutable std::mt19937 rng_;
 };
 
 }  // namespace lczero
