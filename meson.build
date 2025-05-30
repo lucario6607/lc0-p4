@@ -210,6 +210,8 @@ files += [
   'src/utils/string.cc',
   'src/utils/weights_adapter.cc',
   'src/version.cc',
+  'src/search/thompson_sampling.h',
+  'src/search/thompson_sampling_integration.cpp',
 ]
 includes += include_directories('src')
 
