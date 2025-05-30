@@ -10,7 +10,7 @@
 #include <limits> // Added for std::numeric_limits
 #include <string> // Added for std::string
 #include <cmath>  // Added for std::sqrt, std::log
-#include "search/search.h"
+#include "mcts/search.h"
 #include "mcts/node.h"
 #include "mcts/params.h"
 #include "neural/cache.h"
