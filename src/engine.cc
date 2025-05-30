@@ -26,6 +26,7 @@
 */
 
 #include "engine.h"
+#include "search/thompson_sampling_integration.h" // Added for Thompson Sampling
 
 #include <algorithm>
 #include <cmath>
@@ -90,7 +91,10 @@ EngineController::EngineController(std::unique_ptr<UciResponder> uci_responder,
                                    const OptionsDict& options)
     : options_(options),
       uci_responder_(std::move(uci_responder)),
-      current_position_{ChessBoard::kStartposFen, {}} {}
+      current_position_{ChessBoard::kStartposFen, {}} {
+  // Register Thompson Sampling options
+  lczero::RegisterThompsonSamplingWithEngine(); // Added for Thompson Sampling
+}
 
 void EngineController::PopulateOptions(OptionsParser* options) {
   using namespace std::placeholders;
