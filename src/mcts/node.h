@@ -30,6 +30,7 @@
 #include <absl/container/flat_hash_map.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -256,7 +257,8 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false) {}
+        repetition_(false),
+        creation_time_(std::chrono::steady_clock::now()) {}
   // Takes own @edge and @index in the parent.
   Node(const Edge& edge, uint16_t index)
       : edge_(edge),
@@ -264,7 +266,8 @@ class Node {
         terminal_type_(Terminal::NonTerminal),
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
-        repetition_(false) {}
+        repetition_(false),
+        creation_time_(std::chrono::steady_clock::now()) {}
   ~Node() { UnsetLowNode(); }
 
   // Trim node, resetting everything except parent, sibling, edge and index.
@@ -413,6 +416,8 @@ class Node {
 
   bool WLDMInvariantsHold() const;
 
+  std::chrono::steady_clock::time_point GetCreationTime() const { return creation_time_; }
+
  private:
   // To minimize the number of padding bytes and to avoid having unnecessary
   // padding when new fields are added, we arrange the fields by size, largest
@@ -472,6 +477,7 @@ class Node {
   // Edge was handled as a repetition at some point.
   bool repetition_ : 1;
 
+  std::chrono::steady_clock::time_point creation_time_;
 };
 
 // Check that Node still fits into an expected cache line size.
@@ -486,7 +492,8 @@ class LowNode {
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
         is_transposition(false),
-        is_tt_(true) {}
+        is_tt_(true),
+        creation_time_(std::chrono::steady_clock::now()) {}
   // Init from another low node, but use it for NNEval only.
   // For non-TT nodes.
   LowNode(const LowNode& p)
@@ -503,7 +510,8 @@ class LowNode {
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
         is_transposition(false),
-        is_tt_(false) {
+        is_tt_(false),
+        creation_time_(std::chrono::steady_clock::now()) {
     assert(p.edges_);
     edges_ = std::make_unique<Edge[]>(num_edges_);
     std::memcpy(edges_.get(), p.edges_.get(), num_edges_ * sizeof(Edge));
@@ -524,7 +532,8 @@ class LowNode {
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
         is_transposition(false),
-        is_tt_(false) {
+        is_tt_(false),
+        creation_time_(std::chrono::steady_clock::now()) {
     assert(p.edges_);
     edges_ = std::make_unique<Edge[]>(num_edges_);
     std::memcpy(edges_.get(), p.edges_.get(), num_edges_ * sizeof(Edge));
@@ -540,7 +549,8 @@ class LowNode {
         lower_bound_(GameResult::BLACK_WON),
         upper_bound_(GameResult::WHITE_WON),
         is_transposition(false),
-        is_tt_(false) {
+        is_tt_(false),
+        creation_time_(std::chrono::steady_clock::now()) {
     edges_ = Edge::FromMovelist(moves);
     child_ = std::make_unique<Node>(edges_[index], index);
   }
@@ -749,6 +759,7 @@ class LowNode {
 
   // if the node was created as a twin it shouldn't be used for correction history
   bool is_twin_ = false;
+  std::chrono::steady_clock::time_point creation_time_;
 };
 
 // Check that LowNode still fits into an expected cache line size.
