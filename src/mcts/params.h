@@ -184,7 +184,11 @@ class SearchParams {
   float GetThompsonBetaPrior() const { return kThompsonBetaPrior; }
   uint32_t GetThompsonSeed() const { return kThompsonSeed; }
 
-
+  bool GetUseEnhancedThompson() const { return kUseEnhancedThompson; }
+  float GetValueUncertaintyWeight() const { return kValueUncertaintyWeight; }
+  float GetPolicyConcentration() const { return kPolicyConcentration; }
+  uint32_t GetMinVisitsForUncertainty() const { return kMinVisitsForUncertainty; }
+  uint32_t GetEnhancedThompsonSeed() const { return kEnhancedThompsonSeed; }
 
   bool GetUseVarianceScaling() const { return kUseVarianceScaling; }
   bool GetMoveRuleBucketing() const { return kMoveRuleBucketing; }
@@ -358,6 +362,12 @@ class SearchParams {
   static const OptionId kThompsonBetaPriorId;
   static const OptionId kThompsonSeedId;
 
+  static const OptionId kUseEnhancedThompsonId;
+  static const OptionId kValueUncertaintyWeightId;
+  static const OptionId kPolicyConcentrationId;
+  static const OptionId kMinVisitsForUncertaintyId;
+  static const OptionId kEnhancedThompsonSeedId;
+
  private:
   const OptionsDict& options_;
   // Cached parameter values. Values have to be cached if either:
@@ -462,6 +472,12 @@ class SearchParams {
   const float kThompsonAlphaPrior;
   const float kThompsonBetaPrior;
   const uint32_t kThompsonSeed;
+
+  const bool kUseEnhancedThompson;
+  const float kValueUncertaintyWeight;
+  const float kPolicyConcentration;
+  const uint32_t kMinVisitsForUncertainty; // Changed from float to uint32_t
+  const uint32_t kEnhancedThompsonSeed;
 };
 
 }  // namespace lczero

@@ -560,6 +560,23 @@ const OptionId SearchParams::kUseThompsonSamplingId("UseThompsonSampling", "UseT
 const OptionId SearchParams::kThompsonAlphaPriorId("ThompsonAlphaPrior", "ThompsonAlphaPrior", "Alpha prior for Thompson Sampling Beta distribution.", ' ');
 const OptionId SearchParams::kThompsonBetaPriorId("ThompsonBetaPrior", "ThompsonBetaPrior", "Beta prior for Thompson Sampling Beta distribution.", ' ');
 const OptionId SearchParams::kThompsonSeedId("ThompsonSeed", "ThompsonSeed", "Seed for Thompson Sampling RNG (0 for random).", ' ');
+
+const OptionId SearchParams::kUseEnhancedThompsonId(
+    "UseEnhancedThompson", "UseEnhancedThompson",
+    "Enable enhanced Thompson sampling with value uncertainty and Bayesian "
+    "policy updates.");
+const OptionId SearchParams::kValueUncertaintyWeightId(
+    "ValueUncertaintyWeight", "ValueUncertaintyWeight",
+    "How much to weight uncertainty vs mean in enhanced TS.");
+const OptionId SearchParams::kPolicyConcentrationId(
+    "PolicyConcentration", "PolicyConcentration",
+    "Strength of policy prior in enhanced TS (Dirichlet concentration).");
+const OptionId SearchParams::kMinVisitsForUncertaintyId(
+    "MinVisitsForUncertainty", "MinVisitsForUncertainty",
+    "Minimum visits before using uncertainty in enhanced TS.");
+const OptionId SearchParams::kEnhancedThompsonSeedId(
+    "EnhancedThompsonSeed", "EnhancedThompsonSeed",
+    "Seed for enhanced Thompson sampling (0 = random).");
 	
 
 void SearchParams::Populate(OptionsParser* options) {
@@ -708,6 +725,11 @@ void SearchParams::Populate(OptionsParser* options) {
   options->Add<FloatOption>(kThompsonBetaPriorId, 0.0f, 1000.0f) = 1.0f;
   options->Add<IntOption>(kThompsonSeedId, 0, 0xFFFFFFFF) = 0;
 	
+  options->Add<BoolOption>(kUseEnhancedThompsonId) = false;
+  options->Add<FloatOption>(kValueUncertaintyWeightId, 0.0f, 1.0f) = 0.1f;
+  options->Add<FloatOption>(kPolicyConcentrationId, 0.1f, 1000.0f) = 10.0f;
+  options->Add<IntOption>(kMinVisitsForUncertaintyId, 0, 1000) = 5;
+  options->Add<IntOption>(kEnhancedThompsonSeedId, 0, 0xFFFFFFFF) = 0;
 
 
 
@@ -879,6 +901,11 @@ SearchParams::SearchParams(const OptionsDict& options)
       kUseThompsonSampling(options_.Get<bool>(kUseThompsonSamplingId)),
       kThompsonAlphaPrior(options_.Get<float>(kThompsonAlphaPriorId)),
       kThompsonBetaPrior(options_.Get<float>(kThompsonBetaPriorId)),
-      kThompsonSeed(static_cast<uint32_t>(options_.Get<int>(kThompsonSeedId))) {}
+      kThompsonSeed(static_cast<uint32_t>(options_.Get<int>(kThompsonSeedId))),
+      kUseEnhancedThompson(options.Get<bool>(kUseEnhancedThompsonId)),
+      kValueUncertaintyWeight(options.Get<float>(kValueUncertaintyWeightId)),
+      kPolicyConcentration(options.Get<float>(kPolicyConcentrationId)),
+      kMinVisitsForUncertainty(static_cast<uint32_t>(options.Get<int>(kMinVisitsForUncertaintyId))),
+      kEnhancedThompsonSeed(static_cast<uint32_t>(options.Get<int>(kEnhancedThompsonSeedId))) {}
 
 }  // namespace lczero

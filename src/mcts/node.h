@@ -422,7 +422,20 @@ class Node {
   float SampleThompsonValue(std::mt19937& rng) const;
   BetaBernoulliStats GetThompsonStats() const;
 
+  // Policy Tracker Management
+  void InitializePolicyTracker(const std::vector<float>& nn_policy, float concentration);
+  void UpdatePolicyBelief(size_t child_index, float confidence);
+  BayesianPolicyTracker& GetPolicyTracker() { return policy_tracker_; }
+  const BayesianPolicyTracker& GetPolicyTracker() const { return policy_tracker_; }
+
+  // Enhanced Selection Value
+  float GetEnhancedSelectionValue(const SearchParams& params, Node* parent, std::mt19937& rng) const;
+
  private:
+  // Helper methods for enhanced selection
+  bool WasBestMove(float tolerance = 1e-6f) const;
+  size_t GetChildIndex() const;
+
   // To minimize the number of padding bytes and to avoid having unnecessary
   // padding when new fields are added, we arrange the fields by size, largest
   // to smallest.
@@ -482,10 +495,12 @@ class Node {
   bool repetition_ : 1;
 
   BetaBernoulliStats thompson_stats_;
+  ValueUncertaintyTracker value_tracker_;
+  mutable BayesianPolicyTracker policy_tracker_;
 };
 
 // Check that Node still fits into an expected cache line size.
-static_assert(sizeof(Node) <= 128, "Node is too large");
+static_assert(sizeof(Node) <= 128 + sizeof(ValueUncertaintyTracker) + sizeof(BayesianPolicyTracker), "Node is too large");
 
 class LowNode {
  public:

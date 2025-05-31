@@ -1417,36 +1417,26 @@ void SearchWorker::ExecuteOneIteration() {
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void SearchWorker::InitializeIteration(
     std::unique_ptr<NetworkComputation> computation) {
-  // Workaround: Initialize RNG here if not already seeded.
-  // Check if rng_ has been seeded by looking at its current state.
-  // A default-constructed mt19937 usually has a specific default seed state.
-  // Comparing against a fresh one is a way to check if it's "unseeded" by our logic.
-  // This is a bit heuristic. A better way would be a separate bool flag `rng_seeded_ = false;`
-  // initialized in constructor and checked/set here.
-  // Given constructor modification issues, this is a pragmatic approach.
-  static std::mt19937 default_rng_state;
-  if (rng_ == default_rng_state) { // Check if rng is still in its default-constructed state
-    if (params_.GetThompsonSeed() == 0) {
-      std::random_device rd;
-      rng_.seed(rd());
-    } else {
-      // Add a worker-specific component to the seed if a master seed is provided.
-      // Using a simple increment; a more robust mixing could be used.
-      // The 'id' is not directly available here, but we can use thread_id or a similar unique worker identifier if available.
-      // For now, let's use a simple increment based on a static counter or thread_id if accessible.
-      // As 'id' is not directly accessible, this part is tricky.
-      // Let's simplify for now and assume ThompsonSeed itself is sufficiently unique or 0 for random.
-      // If multiple workers get the same non-zero seed, they will produce the same sequence, which is undesirable.
-      // This highlights the limitation of not being able to reliably modify the constructor.
-      // A truly robust solution would involve passing the worker_id or ensuring unique seeds earlier.
-      // For now, we'll use the seed as is, or add a simple static counter for some variation.
-      static std::atomic<uint32_t> worker_seed_offset = {0};
-      uint32_t seed = params_.GetThompsonSeed();
-      if (seed != 0) {
-        seed += worker_seed_offset.fetch_add(1, std::memory_order_relaxed);
-      }
-      rng_.seed(seed);
-    }
+  // Seed RNG based on Thompson sampling settings
+  uint32_t seed_to_use = 0; // Default to random if no specific seed is set
+
+  if (params_.GetUseEnhancedThompson()) {
+    seed_to_use = params_.GetEnhancedThompsonSeed();
+  } else if (params_.GetUseThompsonSampling()) {
+    seed_to_use = params_.GetThompsonSeed();
+  }
+
+  if (seed_to_use == 0) {
+    std::random_device rd;
+    rng_.seed(rd());
+  } else {
+    // Optional: Add worker ID or a unique component if multiple workers might get the same seed.
+    // For now, directly use the provided seed. A more robust solution might involve
+    // combining with a worker-specific ID if available and deterministic seeding per worker is desired.
+    // static std::atomic<uint32_t> worker_seed_offset = {0};
+    // rng_.seed(seed_to_use + worker_seed_offset.fetch_add(1, std::memory_order_relaxed));
+    // Sticking to simpler direct seed for now as worker ID isn't readily available here.
+    rng_.seed(seed_to_use);
   }
 
   computation_ = std::make_unique<CachingComputation>(
@@ -2000,20 +1990,25 @@ void SearchWorker::PickNodesToExtendTask(
           const float util = current_util[idx];
 
           float current_selection_value;
-          if (params_.GetUseThompsonSampling()) {
-              Node* child_node_for_ts = cur_iters[idx].GetOrSpawnNode(node); // node is the parent
+          if (params_.GetUseEnhancedThompson()) {
+              Node* child_node = cur_iters[idx].GetOrSpawnNode(node); // 'node' is the parent
+              // Pass 'node' as parent to GetEnhancedSelectionValue
+              current_selection_value = child_node->GetEnhancedSelectionValue(params_, node, rng_);
+          } else if (params_.GetUseThompsonSampling()) {
+              Node* child_node_for_ts = cur_iters[idx].GetOrSpawnNode(node);
               if (child_node_for_ts->GetN() == 0 && child_node_for_ts->GetNInFlight() == 0) {
                   child_node_for_ts->InitializeThompsonStats(params_.GetThompsonAlphaPrior(), params_.GetThompsonBetaPrior());
               }
+              // This is a raw probability from Beta distribution, typically not a final selection score by itself.
+              // A common usage is Q_child + C * sqrt(log(N_parent)/N_child) * sampled_value_or_variance.
+              // The current lc0 code directly uses this sample as the selection value. We maintain this for simple TS.
               current_selection_value = child_node_for_ts->SampleThompsonValue(rng_);
           } else {
-              // PUCT calculation
-              if (idx > cache_filled_idx) { // p_effective and current_score only needed for PUCT if not already computed
+              // Standard PUCT calculation (existing logic)
+              if (idx > cache_filled_idx) {
                 float p_effective = ComputePolicyDecay(policy_decay_factor, cur_iters[idx].GetP());
-                // a small hack to reduce policy on bad moves
                 if (p_effective < 0.01f) p_effective /= 3;
 
-                // only boost visited nodes
                 if (visited[idx]) {
                   if (util >= min_policy_boost_util_t1) {
                     p_effective = std::max(p_effective, policy_boost_t1);
@@ -2030,7 +2025,7 @@ void SearchWorker::PickNodesToExtendTask(
               current_selection_value = current_score[idx];
           }
           
-          if (idx > cache_filled_idx && !params_.GetUseThompsonSampling()) { // Ensure current_score is filled for PUCT if it wasn't before
+          if (idx > cache_filled_idx && !params_.GetUseThompsonSampling() && !params_.GetUseEnhancedThompson()) { // Ensure current_score is filled for PUCT if it wasn't before
             cache_filled_idx = idx;
           }
 
@@ -2061,36 +2056,27 @@ void SearchWorker::PickNodesToExtendTask(
           }
 
           if (can_exit) break;
-          if (weightstarted == 0 && !params_.GetUseThompsonSampling()) { // For PUCT, original logic
+          if (weightstarted == 0 && !params_.GetUseThompsonSampling() && !params_.GetUseEnhancedThompson()) { // For PUCT, original logic
             can_exit = true;
-          } else if (params_.GetUseThompsonSampling() && idx >= 1) { // For TS, ensure we check at least two options if available
-             // This ensures that if there are multiple unvisited/low-visit moves, TS gets a chance to pick between them.
-             // The original can_exit logic for PUCT is tied to finding the first unvisited node due to sorted priors.
-             // For TS, values are stochastic, so we might want to see more.
-             // However, to keep changes minimal, let's make it similar: exit after checking one unvisited.
-             // A more sophisticated TS might explore more unvisited nodes.
+          } else if ((params_.GetUseThompsonSampling() || params_.GetUseEnhancedThompson()) && idx >= 1) {
             if(weightstarted == 0) can_exit = true;
           }
         }
-        // Ensure cache_filled_idx is updated if Thompson Sampling was used, as it bypasses the original current_score filling logic
-        if (params_.GetUseThompsonSampling() && cache_filled_idx < max_needed -1) {
+        // Ensure cache_filled_idx is updated if Thompson Sampling or Enhanced Thompson Sampling was used
+        if ((params_.GetUseThompsonSampling() || params_.GetUseEnhancedThompson()) && cache_filled_idx < max_needed -1) {
             cache_filled_idx = max_needed -1; // Mark all as "processed" for selection value generation
         }
 
         int new_visits = 0;
         if (second_best_edge) {
           int estimated_visits_to_change_best = std::numeric_limits<int>::max();
-          if (best_without_u < second_best_value_for_selection) { // Use the renamed variable
+          if (best_without_u < second_best_value_for_selection) {
             const auto n1 = current_weightstarted[best_idx] + 1;
-            if (params_.GetUseThompsonSampling()) {
+            if (params_.GetUseThompsonSampling() || params_.GetUseEnhancedThompson()) { // Treat Enhanced TS similar to TS for this estimation
                  estimated_visits_to_change_best = cur_limit; 
             } else {
                  // Original PUCT logic.
-                 // Need to use the p_effective that would have been calculated for current_score[best_idx]
-                 // This is complex to reconstruct perfectly here. Original code uses cur_iters[best_idx].GetP().
-                 float p_for_estimation = cur_iters[best_idx].GetP(); // Approximation
-                 // Potentially re-calculate p_effective for best_idx if needed for accuracy, or accept approximation.
-                 // For simplicity, using raw P as in original code for this estimation part.
+                 float p_for_estimation = cur_iters[best_idx].GetP();
                  estimated_visits_to_change_best = static_cast<int>(
                     std::max(1.0f, std::min(p_for_estimation * puct_mult /
                                                 (second_best_value_for_selection - best_without_u) -
@@ -2098,19 +2084,18 @@ void SearchWorker::PickNodesToExtendTask(
                                         1e9f)));
             }
           }
-          second_best_edge.Reset(); // Already captured if needed
+          second_best_edge.Reset();
           max_limit = std::min(max_limit, estimated_visits_to_change_best);
           new_visits = std::min(cur_limit, estimated_visits_to_change_best);
         } else {
           new_visits = cur_limit;
         }
 
-        if (best_idx == -1 && max_needed > 0) { // Should not happen if there are legal moves
-            best_idx = 0; // Default to first move if somehow no best is selected
-            best_edge = node->Edges(); // Get first edge
-        } else if (max_needed == 0) { // No legal moves, should have been caught by ShouldStopPickingHere
-            // This case should ideally not be reached if ShouldStopPickingHere is robust
-            break; // Break cur_limit loop
+        if (best_idx == -1 && max_needed > 0) {
+            best_idx = 0;
+            best_edge = node->Edges();
+        } else if (max_needed == 0) {
+            break;
         }
 
 
@@ -2138,10 +2123,9 @@ void SearchWorker::PickNodesToExtendTask(
             child_node->IncrementNInFlight(new_visits);
             current_weightstarted[best_idx] += new_visits;
           }
-          // Update current_score[best_idx] only if not using Thompson Sampling,
-          // as it's the PUCT value. For TS, this array isn't used for selection.
-          if (!params_.GetUseThompsonSampling()) {
-            current_score[best_idx] = cur_iters[best_idx].GetP() * puct_mult / // Again, GetP() is raw policy
+
+          if (!params_.GetUseThompsonSampling() && !params_.GetUseEnhancedThompson()) {
+            current_score[best_idx] = cur_iters[best_idx].GetP() * puct_mult /
                                           (1 + current_weightstarted[best_idx]) +
                                       current_util[best_idx];
           }
@@ -2649,9 +2633,9 @@ void SearchWorker::DoBackupUpdateSingleNode(
         v, d, m, vs, node_to_process.multivisit,
         node_to_process.multivisit * avg_weight);
 
-    if (params_.GetUseThompsonSampling()) {
+    if (params_.GetUseThompsonSampling() || params_.GetUseEnhancedThompson()) { // Also update for enhanced TS
         // 'v' is the value from the child's perspective, used to update n_current_in_path_ref
-        n_current_in_path_ref->UpdateThompsonStats(v);
+        n_current_in_path_ref->UpdateThompsonStats(v); // Assuming this is general enough or will be adapted
     }
 
     if (n_to_fix > 0 && !n_current_in_path_ref->IsTerminal()) {
