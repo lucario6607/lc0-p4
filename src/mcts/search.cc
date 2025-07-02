@@ -1433,9 +1433,7 @@ void SearchWorker::InitializeIteration(
       // Add a worker-specific component to the seed if a master seed is provided.
       // Using a simple increment; a more robust mixing could be used.
       // The 'id' is not directly available here, but we can use thread_id or a similar unique worker identifier if available.
-      // For now, let's use a simple increment based on a static counter or thread_id if accessible.
-      // As 'id' is not directly accessible, this part is tricky.
-      // Let's simplify for now and assume ThompsonSeed itself is sufficiently unique or 0 for random.
+      // For now, let's simplify for now and assume ThompsonSeed itself is sufficiently unique or 0 for random.
       // If multiple workers get the same non-zero seed, they will produce the same sequence, which is undesirable.
       // This highlights the limitation of not being able to reliably modify the constructor.
       // A truly robust solution would involve passing the worker_id or ensuring unique seeds earlier.
@@ -1999,41 +1997,54 @@ void SearchWorker::PickNodesToExtendTask(
           float weightstarted = current_weightstarted[idx];
           const float util = current_util[idx];
 
+          // PUCT score is calculated first, as it might be needed for TS on
+          // unvisited nodes.
+          if (idx > cache_filled_idx) {
+            float p_effective =
+                ComputePolicyDecay(policy_decay_factor, cur_iters[idx].GetP());
+            // a small hack to reduce policy on bad moves
+            if (p_effective < 0.01f) p_effective /= 3;
+
+            // only boost visited nodes
+            if (visited[idx]) {
+              if (util >= min_policy_boost_util_t1) {
+                p_effective = std::max(p_effective, policy_boost_t1);
+              }
+              if (util >= min_policy_boost_util_t2) {
+                p_effective = std::max(p_effective, policy_boost_t2);
+              }
+              if (cur_iters[idx].GetWL(-999.0f) > -node->GetWL() &&
+                  cur_iters[idx].GetWeight() < node->GetWeight() / 3)
+                p_effective *= 1.4;
+            }
+            current_score[idx] =
+                p_effective * puct_mult / (1.0f + weightstarted) + util;
+          }
+
           float current_selection_value;
           if (params_.GetUseThompsonSampling()) {
-              Node* child_node_for_ts = cur_iters[idx].GetOrSpawnNode(node); // node is the parent
-              if (child_node_for_ts->GetN() == 0 && child_node_for_ts->GetNInFlight() == 0) {
-                  child_node_for_ts->InitializeThompsonStats(params_.GetThompsonAlphaPrior(), params_.GetThompsonBetaPrior());
-              }
-              current_selection_value = child_node_for_ts->SampleThompsonValue(rng_);
-          } else {
-              // PUCT calculation
-              if (idx > cache_filled_idx) { // p_effective and current_score only needed for PUCT if not already computed
-                float p_effective = ComputePolicyDecay(policy_decay_factor, cur_iters[idx].GetP());
-                // a small hack to reduce policy on bad moves
-                if (p_effective < 0.01f) p_effective /= 3;
-
-                // only boost visited nodes
-                if (visited[idx]) {
-                  if (util >= min_policy_boost_util_t1) {
-                    p_effective = std::max(p_effective, policy_boost_t1);
-                  }
-                  if (util >= min_policy_boost_util_t2) {
-                    p_effective = std::max(p_effective, policy_boost_t2);
-                  }
-                  if (cur_iters[idx].GetWL(-999.0f) > -node->GetWL() &&
-                      cur_iters[idx].GetWeight() < node->GetWeight() / 3)
-                    p_effective *= 1.4;
-                }
-                current_score[idx] = p_effective * puct_mult / (1.0f + weightstarted) + util;
+            Node* child_node = cur_iters[idx].GetOrSpawnNode(node);
+            if (weightstarted > 0) {  // Visited node: use Thompson Sampling.
+              // Convert sampled win probability [0,1] to Q-value [-1,1].
+              current_selection_value =
+                  2.0f * child_node->SampleThompsonValue(rng_) - 1.0f;
+            } else {  // Unvisited node: use PUCT score to incorporate policy.
+              if (child_node->GetN() == 0 &&
+                  child_node->GetNInFlight() == 0) {
+                child_node->InitializeThompsonStats(
+                    params_.GetThompsonAlphaPrior(),
+                    params_.GetThompsonBetaPrior());
               }
               current_selection_value = current_score[idx];
-          }
-          
-          if (idx > cache_filled_idx && !params_.GetUseThompsonSampling()) { // Ensure current_score is filled for PUCT if it wasn't before
-            cache_filled_idx = idx;
+            }
+          } else {
+            // Original PUCT.
+            current_selection_value = current_score[idx];
           }
 
+          if (idx > cache_filled_idx) {
+            cache_filled_idx = idx;
+          }
 
           if (is_root_node) {
             if (cur_iters[idx] != search_->current_best_edge_ &&
@@ -2061,20 +2072,9 @@ void SearchWorker::PickNodesToExtendTask(
           }
 
           if (can_exit) break;
-          if (weightstarted == 0 && !params_.GetUseThompsonSampling()) { // For PUCT, original logic
+          if (weightstarted == 0) {
             can_exit = true;
-          } else if (params_.GetUseThompsonSampling() && idx >= 1) { // For TS, ensure we check at least two options if available
-             // This ensures that if there are multiple unvisited/low-visit moves, TS gets a chance to pick between them.
-             // The original can_exit logic for PUCT is tied to finding the first unvisited node due to sorted priors.
-             // For TS, values are stochastic, so we might want to see more.
-             // However, to keep changes minimal, let's make it similar: exit after checking one unvisited.
-             // A more sophisticated TS might explore more unvisited nodes.
-            if(weightstarted == 0) can_exit = true;
           }
-        }
-        // Ensure cache_filled_idx is updated if Thompson Sampling was used, as it bypasses the original current_score filling logic
-        if (params_.GetUseThompsonSampling() && cache_filled_idx < max_needed -1) {
-            cache_filled_idx = max_needed -1; // Mark all as "processed" for selection value generation
         }
 
         int new_visits = 0;
@@ -2843,4 +2843,5 @@ void SearchWorker::UpdateCounters() {
   }
 }
 
+}  // namespace lczero
 }  // namespace lczero
