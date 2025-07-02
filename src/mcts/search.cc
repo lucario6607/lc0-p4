@@ -1810,11 +1810,8 @@ void SearchWorker::PickNodesToExtendTask(
   std::array<bool, 256> visited;
 
   // These 3 are 'filled on demand'.
-  std::array<float, 256> current_score;
   std::array<float, 256> current_weightstarted;
 
-
-  
   constexpr int num_top = 8;
   std::array<float, num_top> top_utils;
 
@@ -2037,6 +2034,10 @@ void SearchWorker::PickNodesToExtendTask(
           
           float current_selection_value = base_value + u_bonus;
 
+          if (idx > cache_filled_idx) {
+            cache_filled_idx = idx;
+          }
+
           if (is_root_node) {
             if (cur_iters[idx] != search_->current_best_edge_ &&
                 latest_time_manager_hints_.GetEstimatedRemainingPlayouts() <
@@ -2055,7 +2056,7 @@ void SearchWorker::PickNodesToExtendTask(
             second_best_edge = best_edge;
             best_value_for_selection = current_selection_value;
             best_idx = idx;
-            best_without_u = util;
+            best_without_u = base_value;
             best_edge = cur_iters[idx];
           } else if (current_selection_value > second_best_value_for_selection) {
             second_best_value_for_selection = current_selection_value;
@@ -2071,16 +2072,13 @@ void SearchWorker::PickNodesToExtendTask(
         int new_visits = 0;
         if (second_best_edge) {
           int estimated_visits_to_change_best = std::numeric_limits<int>::max();
-          if (best_without_u < second_best_value_for_selection) { 
+          if (best_without_u < second_best_value_for_selection) {
             const auto n1 = current_weightstarted[best_idx] + 1;
-             // Original PUCT logic can be used here even for TS, as it's just an estimation heuristic.
-             // It estimates how many visits are needed for Q to overcome the U-term difference.
-             // For TS, this logic is less direct, but we can keep it as a heuristic to limit visits.
-             float p_for_estimation = cur_iters[best_idx].GetP();
+             float p_for_estimation = best_edge.GetP();
              estimated_visits_to_change_best = static_cast<int>(
                 std::max(1.0f, std::min(p_for_estimation * puct_mult /
-                                            (second_best_value_for_selection - (best_without_u + u_bonus)) -
-                                        n1 + 1,
+                                            (second_best_value_for_selection - best_without_u) -
+                                        n1,
                                     1e9f)));
           }
           second_best_edge.Reset(); 
@@ -2552,9 +2550,6 @@ void SearchWorker::DoBackupUpdateSingleNode(
     ntp_cht_entry = nullptr;
   }
   float ch_lambda = params_.GetCorrectionHistoryLambda();
-  float ch_alpha = params_.GetCorrectionHistoryAlpha();
-
-
 
 
   // Update the low node at the start of the backup path first, but only visit
