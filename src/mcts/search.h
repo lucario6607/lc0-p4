@@ -509,4 +509,3 @@ class SearchWorker {
 };
 
 }  // namespace lczero
-}  // namespace lczero
