@@ -1996,55 +1996,46 @@ void SearchWorker::PickNodesToExtendTask(
           }
           float weightstarted = current_weightstarted[idx];
           const float util = current_util[idx];
+          
+          float p_effective =
+              ComputePolicyDecay(policy_decay_factor, cur_iters[idx].GetP());
+          // a small hack to reduce policy on bad moves
+          if (p_effective < 0.01f) p_effective /= 3;
 
-          // PUCT score is calculated first, as it might be needed for TS on
-          // unvisited nodes.
-          if (idx > cache_filled_idx) {
-            float p_effective =
-                ComputePolicyDecay(policy_decay_factor, cur_iters[idx].GetP());
-            // a small hack to reduce policy on bad moves
-            if (p_effective < 0.01f) p_effective /= 3;
-
-            // only boost visited nodes
-            if (visited[idx]) {
-              if (util >= min_policy_boost_util_t1) {
-                p_effective = std::max(p_effective, policy_boost_t1);
-              }
-              if (util >= min_policy_boost_util_t2) {
-                p_effective = std::max(p_effective, policy_boost_t2);
-              }
-              if (cur_iters[idx].GetWL(-999.0f) > -node->GetWL() &&
-                  cur_iters[idx].GetWeight() < node->GetWeight() / 3)
-                p_effective *= 1.4;
+          // only boost visited nodes
+          if (visited[idx]) {
+            if (util >= min_policy_boost_util_t1) {
+              p_effective = std::max(p_effective, policy_boost_t1);
             }
-            current_score[idx] =
-                p_effective * puct_mult / (1.0f + weightstarted) + util;
+            if (util >= min_policy_boost_util_t2) {
+              p_effective = std::max(p_effective, policy_boost_t2);
+            }
+            if (cur_iters[idx].GetWL(-999.0f) > -node->GetWL() &&
+                cur_iters[idx].GetWeight() < node->GetWeight() / 3)
+              p_effective *= 1.4;
           }
-
-          float current_selection_value;
+          
+          const float u_bonus = p_effective * puct_mult / (1.0f + weightstarted);
+          
+          float base_value;
           if (params_.GetUseThompsonSampling()) {
             Node* child_node = cur_iters[idx].GetOrSpawnNode(node);
-            if (weightstarted > 0) {  // Visited node: use Thompson Sampling.
-              // Convert sampled win probability [0,1] to Q-value [-1,1].
-              current_selection_value =
-                  2.0f * child_node->SampleThompsonValue(rng_) - 1.0f;
-            } else {  // Unvisited node: use PUCT score to incorporate policy.
+            if (weightstarted > 0) { // Visited node: use Thompson Sampled Q.
+              base_value = 2.0f * child_node->SampleThompsonValue(rng_) - 1.0f;
+            } else { // Unvisited node: use FPU and initialize stats.
               if (child_node->GetN() == 0 &&
                   child_node->GetNInFlight() == 0) {
                 child_node->InitializeThompsonStats(
                     params_.GetThompsonAlphaPrior(),
                     params_.GetThompsonBetaPrior());
               }
-              current_selection_value = current_score[idx];
+              base_value = util;
             }
-          } else {
-            // Original PUCT.
-            current_selection_value = current_score[idx];
+          } else { // Standard PUCT
+            base_value = util;
           }
           
-          if (idx > cache_filled_idx) {
-            cache_filled_idx = idx;
-          }
+          float current_selection_value = base_value + u_bonus;
 
           if (is_root_node) {
             if (cur_iters[idx] != search_->current_best_edge_ &&
@@ -2080,37 +2071,30 @@ void SearchWorker::PickNodesToExtendTask(
         int new_visits = 0;
         if (second_best_edge) {
           int estimated_visits_to_change_best = std::numeric_limits<int>::max();
-          if (best_without_u < second_best_value_for_selection) { // Use the renamed variable
+          if (best_without_u < second_best_value_for_selection) { 
             const auto n1 = current_weightstarted[best_idx] + 1;
-            if (params_.GetUseThompsonSampling()) {
-                 estimated_visits_to_change_best = cur_limit; 
-            } else {
-                 // Original PUCT logic.
-                 // Need to use the p_effective that would have been calculated for current_score[best_idx]
-                 // This is complex to reconstruct perfectly here. Original code uses cur_iters[best_idx].GetP().
-                 float p_for_estimation = cur_iters[best_idx].GetP(); // Approximation
-                 // Potentially re-calculate p_effective for best_idx if needed for accuracy, or accept approximation.
-                 // For simplicity, using raw P as in original code for this estimation part.
-                 estimated_visits_to_change_best = static_cast<int>(
-                    std::max(1.0f, std::min(p_for_estimation * puct_mult /
-                                                (second_best_value_for_selection - best_without_u) -
-                                            n1 + 1,
-                                        1e9f)));
-            }
+             // Original PUCT logic can be used here even for TS, as it's just an estimation heuristic.
+             // It estimates how many visits are needed for Q to overcome the U-term difference.
+             // For TS, this logic is less direct, but we can keep it as a heuristic to limit visits.
+             float p_for_estimation = cur_iters[best_idx].GetP();
+             estimated_visits_to_change_best = static_cast<int>(
+                std::max(1.0f, std::min(p_for_estimation * puct_mult /
+                                            (second_best_value_for_selection - (best_without_u + u_bonus)) -
+                                        n1 + 1,
+                                    1e9f)));
           }
-          second_best_edge.Reset(); // Already captured if needed
+          second_best_edge.Reset(); 
           max_limit = std::min(max_limit, estimated_visits_to_change_best);
           new_visits = std::min(cur_limit, estimated_visits_to_change_best);
         } else {
           new_visits = cur_limit;
         }
 
-        if (best_idx == -1 && max_needed > 0) { // Should not happen if there are legal moves
-            best_idx = 0; // Default to first move if somehow no best is selected
-            best_edge = node->Edges(); // Get first edge
-        } else if (max_needed == 0) { // No legal moves, should have been caught by ShouldStopPickingHere
-            // This case should ideally not be reached if ShouldStopPickingHere is robust
-            break; // Break cur_limit loop
+        if (best_idx == -1 && max_needed > 0) { 
+            best_idx = 0; 
+            best_edge = node->Edges(); 
+        } else if (max_needed == 0) { 
+            break; 
         }
 
 
@@ -2137,13 +2121,6 @@ void SearchWorker::PickNodesToExtendTask(
           } else {
             child_node->IncrementNInFlight(new_visits);
             current_weightstarted[best_idx] += new_visits;
-          }
-          // Update current_score[best_idx] only if not using Thompson Sampling,
-          // as it's the PUCT value. For TS, this array isn't used for selection.
-          if (!params_.GetUseThompsonSampling()) {
-            current_score[best_idx] = cur_iters[best_idx].GetP() * puct_mult / // Again, GetP() is raw policy
-                                          (1 + current_weightstarted[best_idx]) +
-                                      current_util[best_idx];
           }
         }
         if (best_idx > vtp_last_filled.back() &&
