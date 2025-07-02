@@ -1,3 +1,5 @@
+--- START OF FILE beta_bernoulli_stats.h ---
+
 #pragma once
 
 #include <random>
