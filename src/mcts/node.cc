@@ -1,4 +1,4 @@
-  /*
+/*
   This file is part of Leela Chess Zero.
   Copyright (C) 2018 The LCZero Authors
 
@@ -728,6 +728,23 @@ bool Node::WLDMInvariantsHold() const {
   return false;
 }
 
+// Thompson sampling related methods
+void Node::InitializeThompsonStats(float alpha_prior, float beta_prior) {
+    thompson_stats_ = BetaBernoulliStats(alpha_prior, beta_prior);
+}
+
+void Node::UpdateThompsonStats(float value) {
+    thompson_stats_.Update(value);
+}
+
+float Node::SampleThompsonValue(std::mt19937& rng) const {
+    return thompson_stats_.Sample(rng);
+}
+
+BetaBernoulliStats Node::GetThompsonStats() const {
+    return thompson_stats_;
+}
+
 bool LowNode::WLDMInvariantsHold() const {
   if (lczero::WLDMInvariantsHold(GetWL(), GetD(), GetM())) return true;
 
@@ -942,23 +959,6 @@ bool NodeTree::TTGCSome(size_t count) {
   }
 
   return gc_queue_.empty();
-}
-
-// Thompson sampling related methods
-void Node::InitializeThompsonStats(float alpha_prior, float beta_prior) {
-    thompson_stats_ = BetaBernoulliStats(alpha_prior, beta_prior);
-}
-
-void Node::UpdateThompsonStats(float value) {
-    thompson_stats_.Update(value);
-}
-
-float Node::SampleThompsonValue(std::mt19937& rng) const {
-    return thompson_stats_.Sample(rng);
-}
-
-BetaBernoulliStats Node::GetThompsonStats() const {
-    return thompson_stats_;
 }
 
 }  // namespace lczero
