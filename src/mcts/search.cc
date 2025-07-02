@@ -2041,7 +2041,7 @@ void SearchWorker::PickNodesToExtendTask(
             // Original PUCT.
             current_selection_value = current_score[idx];
           }
-
+          
           if (idx > cache_filled_idx) {
             cache_filled_idx = idx;
           }
@@ -2076,7 +2076,7 @@ void SearchWorker::PickNodesToExtendTask(
             can_exit = true;
           }
         }
-
+        
         int new_visits = 0;
         if (second_best_edge) {
           int estimated_visits_to_change_best = std::numeric_limits<int>::max();
@@ -2843,5 +2843,4 @@ void SearchWorker::UpdateCounters() {
   }
 }
 
-}  // namespace lczero
 }  // namespace lczero
