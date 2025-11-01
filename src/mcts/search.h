@@ -50,8 +50,62 @@
 namespace lczero {
 
 // START: Butterfly History
-// This class is defined in search.cc and is forward-declared here.
-class ButterflyHistory;
+// A helper class to manage the butterfly history table, which stores scores
+// for moves based on how well they perform during the search. This is a global,
+// shared table for all search threads.
+class ButterflyHistory {
+ public:
+  // Zeros out the entire history table. Called at the start of a search.
+  void Clear() {
+    for (auto& color_table : table_) {
+      for (auto& row : color_table) {
+        for (auto& x : row) {
+          x.store(0, std::memory_order_relaxed);
+        }
+      }
+    }
+  }
+
+  // Retrieves the current history score for a given move.
+  int32_t GetValue(int color, Move m) const {
+    return table_[color][m.from()][m.to()].load(std::memory_order_relaxed);
+  }
+
+  // Updates the score for a move with a bonus based on the depth at which
+  // it was found to be good. This operation is atomic.
+  void Update(int color, Move m, int depth) {
+    auto& entry = table_[color][m.from()][m.to()];
+    // Cap bonus from a single update to avoid extreme swings. depth^2 is used.
+    constexpr int32_t kBonusLimit = 256;  // depth^2, so max depth ~16
+    const int32_t bonus = std::min(depth * depth, kBonusLimit);
+
+    // Atomically add the bonus. A small race on the clamp is acceptable for a heuristic.
+    int32_t old_value = entry.fetch_add(bonus, std::memory_order_relaxed);
+
+    constexpr int32_t kMax = 1 << 20;
+    int32_t new_value = old_value + bonus;
+    if (new_value > kMax || new_value < -kMax) {
+      entry.store(std::clamp(new_value, -kMax, kMax),
+                  std::memory_order_relaxed);
+    }
+  }
+
+  // Decays all scores in the table, preventing them from growing indefinitely.
+  void Age() {
+    for (auto& color_table : table_) {
+      for (auto& row : color_table) {
+        for (auto& x : row) {
+          x.store(x.load(std::memory_order_relaxed) / 2,
+                  std::memory_order_relaxed);
+        }
+      }
+    }
+  }
+
+ private:
+  // Table is indexed by [color][from_square][to_square]. 0=White, 1=Black.
+  std::array<std::array<std::array<std::atomic<int32_t>, 64>, 64>, 2> table_{};
+};
 // END: Butterfly History
 
 typedef std::vector<std::tuple<Node*, int, int>> BackupPath;
