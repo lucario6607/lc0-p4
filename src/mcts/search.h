@@ -28,6 +28,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <optional>
@@ -47,6 +48,11 @@
 #include "utils/mutex.h"
 
 namespace lczero {
+
+// START: Butterfly History
+// This class is defined in search.cc and is forward-declared here.
+class ButterflyHistory;
+// END: Butterfly History
 
 typedef std::vector<std::tuple<Node*, int, int>> BackupPath;
 
@@ -207,6 +213,12 @@ class Search {
 
   std::unique_ptr<UciResponder> uci_responder_;
   ContemptMode contempt_mode_;
+
+  // START: Butterfly History
+  ButterflyHistory butterfly_history_;
+  std::atomic<uint64_t> nodes_since_last_age_{0};
+  // END: Butterfly History
+
   friend class SearchWorker;
 };
 
@@ -217,6 +229,7 @@ class SearchWorker {
  public:
   SearchWorker(Search* search, const SearchParams& params, int id)
       : search_(search),
+        worker_id_(id),
         history_(search_->played_history_),
         params_(params),
         moves_left_support_(search_->network_->GetCapabilities().moves_left !=
@@ -479,6 +492,7 @@ class SearchWorker {
   int WaitForTasks();
 
   Search* const search_;
+  const int worker_id_;
   // List of nodes to process.
   std::vector<NodeToProcess> minibatch_;
   std::unique_ptr<CachingComputation> computation_;
