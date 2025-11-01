@@ -230,6 +230,13 @@ class SearchParams {
   float GetCorrectionHistoryAlpha() const { return kCorrectionHistoryAlpha; }
   float GetCorrectionHistoryLambda() const { return kCorrectionHistoryLambda; }
 
+  // START: Butterfly History
+  bool GetUseButterflyHistory() const { return kUseButterflyHistory; }
+  float GetButterflyHistoryWeight() const { return kButterflyHistoryWeight; }
+  uint64_t GetButterflyHistoryAgeInterval() const {
+    return kButterflyHistoryAgeInterval;
+  }
+  // END: Butterfly History
 
   // Search parameter IDs.
   static const OptionId kMiniBatchSizeId;
@@ -348,6 +355,11 @@ class SearchParams {
   static const OptionId kCorrectionHistoryAlphaId;
   static const OptionId kCorrectionHistoryLambdaId;
 
+  // START: Butterfly History
+  static const OptionId kUseButterflyHistoryId;
+  static const OptionId kButterflyHistoryWeightId;
+  static const OptionId kButterflyHistoryAgeIntervalId;
+  // END: Butterfly History
 
 
  private:
@@ -450,7 +462,11 @@ class SearchParams {
   const float kCorrectionHistoryAlpha;
   const float kCorrectionHistoryLambda;
 
-
+  // START: Butterfly History
+  const bool kUseButterflyHistory;
+  const float kButterflyHistoryWeight;
+  const uint64_t kButterflyHistoryAgeInterval;
+  // END: Butterfly History
 };
 
 }  // namespace lczero
