@@ -1,3 +1,4 @@
+
 /*
   This file is part of Leela Chess Zero.
   Copyright (C) 2018-2019 The LCZero Authors
@@ -46,6 +47,65 @@
 namespace lczero {
 
 namespace {
+// START: Butterfly History
+// A helper class to manage the butterfly history table, which stores scores
+// for moves based on how well they perform during the search. This is a global,
+// shared table for all search threads.
+class ButterflyHistory {
+ public:
+  // Zeros out the entire history table. Called at the start of a search.
+  void Clear() {
+    for (auto& color_table : table_) {
+      for (auto& row : color_table) {
+        for (auto& x : row) {
+          x.store(0, std::memory_order_relaxed);
+        }
+      }
+    }
+  }
+
+  // Retrieves the current history score for a given move.
+  int32_t GetValue(int color, Move m) const {
+    return table_[color][m.from()][m.to()].load(std::memory_order_relaxed);
+  }
+
+  // Updates the score for a move with a bonus based on the depth at which
+  // it was found to be good. This operation is atomic.
+  void Update(int color, Move m, int depth) {
+    auto& entry = table_[color][m.from()][m.to()];
+    // Cap bonus from a single update to avoid extreme swings. depth^2 is used.
+    constexpr int32_t kBonusLimit = 256;  // depth^2, so max depth ~16
+    const int32_t bonus = std::min(depth * depth, kBonusLimit);
+
+    // Atomically add the bonus. A small race on the clamp is acceptable for a heuristic.
+    int32_t old_value = entry.fetch_add(bonus, std::memory_order_relaxed);
+
+    constexpr int32_t kMax = 1 << 20;
+    int32_t new_value = old_value + bonus;
+    if (new_value > kMax || new_value < -kMax) {
+      entry.store(std::clamp(new_value, -kMax, kMax),
+                  std::memory_order_relaxed);
+    }
+  }
+
+  // Decays all scores in the table, preventing them from growing indefinitely.
+  void Age() {
+    for (auto& color_table : table_) {
+      for (auto& row : color_table) {
+        for (auto& x : row) {
+          x.store(x.load(std::memory_order_relaxed) / 2,
+                  std::memory_order_relaxed);
+        }
+      }
+    }
+  }
+
+ private:
+  // Table is indexed by [color][from_square][to_square]. 0=White, 1=Black.
+  std::array<std::array<std::array<std::atomic<int32_t>, 64>, 64>, 2> table_{};
+};
+// END: Butterfly History
+
 // Maximum delay between outputting "uci info" when nothing interesting happens.
 const int kUciInfoMinimumFrequencyMs = 5000;
 
@@ -196,6 +256,13 @@ Search::Search(NodeTree* dag, Network* network,
                            : ContemptMode::WHITE;
     }
   }
+  // START: Butterfly History
+  // Assuming 'butterfly_history_' and 'nodes_since_last_age_' are members of Search.
+  if (params_.GetUseButterflyHistory()) {
+    butterfly_history_.Clear();
+    nodes_since_last_age_.store(0, std::memory_order_relaxed);
+  }
+  // END: Butterfly History
 }
 
 namespace {
@@ -1957,7 +2024,22 @@ void SearchWorker::PickNodesToExtendTask(
             //else if (cur_iters[idx].GetWL(0.0f) < -0.99) p /= 3;
             //else if (cur_iters[idx].GetWL(0.0f) < -0.95) p /= 2;
 
-
+            // START: Butterfly History
+            float history_bonus = 0.0f;
+            if (params_.GetUseButterflyHistory()) {
+              // The side to move at this node `node`. A node's depth is its
+              // distance from the root, so `full_path.size() - 1`.
+              const bool node_is_black =
+                  (search_->played_history_.IsBlackToMove() !=
+                   ((full_path.size() - 1) % 2 == 1));
+              const int color = node_is_black ? 1 : 0;
+              const int32_t history_value = search_->butterfly_history_.GetValue(
+                  color, cur_iters[idx].GetMove());
+              // Scale the integer history value to a float bonus for PUCT.
+              history_bonus = static_cast<float>(history_value) *
+                              params_.GetButterflyHistoryWeight();
+            }
+            // END: Butterfly History
 
             // only boost visited nodes
 						if (visited[idx]) {
@@ -1976,7 +2058,7 @@ void SearchWorker::PickNodesToExtendTask(
 
             
             current_score[idx] =
-              p * puct_mult / (1 + weightstarted) + util;
+              p * puct_mult / (1 + weightstarted) + util + history_bonus;
             cache_filled_idx++;
           }
           if (is_root_node) {
@@ -1992,7 +2074,7 @@ void SearchWorker::PickNodesToExtendTask(
             }
             // If root move filter exists, make sure move is in the list.
             if (!root_move_filter.empty() &&
-                std::find(root_move_filter.begin(), root_move_filter.end(),
+                std::find(root_move_filter.begin(), root_move_filter_.end(),
                           cur_iters[idx].GetMove()) == root_move_filter.end()) {
               continue;
             }
@@ -2592,6 +2674,31 @@ void SearchWorker::DoBackupUpdateSingleNode(
     // Nothing left to do without ancestors to update.
     if (++it == path.crend()) break;
     auto [p, pr, pm] = *it;
+    // START: Butterfly History
+    if (params_.GetUseButterflyHistory()) {
+      Move traversed_move;
+      // Find the edge from parent 'p' to child 'n' to get the move.
+      for (const auto& edge : p->Edges()) {
+        // The node pointer must exist if we are backing up through it.
+        if (edge.node() == n) {
+          traversed_move = edge.GetMove();
+          break;
+        }
+      }
+
+      if (!traversed_move.is_null()) {
+        const int parent_depth =
+            path.size() - std::distance(path.crbegin(), it) - 1;
+        // The side that *made* the move, i.e., the color of the parent 'p'.
+        const bool parent_is_black =
+            (search_->played_history_.IsBlackToMove() != (parent_depth % 2 == 1));
+        const int color = parent_is_black ? 1 : 0;
+        
+        // Use depth from the search root as the bonus factor.
+        search_->butterfly_history_.Update(color, traversed_move, parent_depth + 1);
+      }
+    }
+    // END: Butterfly History
     LowNode* pl = p->GetLowNode();
 
     assert(!p->IsTerminal() ||
@@ -2751,21 +2858,41 @@ void SearchWorker::UpdateCounters() {
   search_->MaybeTriggerStop(iteration_stats_, &latest_time_manager_hints_);
   search_->MaybeOutputInfo();
 
-  // If this thread had no work, not even out of order, then sleep for some
-  // milliseconds. Collisions don't count as work, so have to enumerate to find
-  // out if there was anything done.
-  bool work_done = number_out_of_order_ > 0;
-  if (!work_done) {
-    for (NodeToProcess& node_to_process : minibatch_) {
-      if (!node_to_process.IsCollision()) {
-        work_done = true;
-        break;
+  uint32_t nodes_in_batch = 0;
+  for (const auto& node_to_process : minibatch_) {
+    if (!node_to_process.IsCollision()) {
+      nodes_in_batch++;
+    }
+  }
+
+  // START: Butterfly History
+  if (params_.GetUseButterflyHistory() && nodes_in_batch > 0) {
+    // All workers contribute to the node count for aging.
+    search_->nodes_since_last_age_.fetch_add(nodes_in_batch,
+                                             std::memory_order_relaxed);
+    // A single designated worker (worker 0) handles the aging process.
+    // Assuming worker_id_ is a member of SearchWorker initialized by the 'i' in StartThreads.
+    if (worker_id_ == 0) {
+      uint64_t total_nodes =
+          search_->nodes_since_last_age_.load(std::memory_order_relaxed);
+      if (total_nodes >= params_.GetButterflyHistoryAgeInterval()) {
+        search_->butterfly_history_.Age();
+        // Reset the counter. Subtract the interval to keep leftover nodes.
+        search_->nodes_since_last_age_.fetch_sub(
+            params_.GetButterflyHistoryAgeInterval(),
+            std::memory_order_relaxed);
       }
     }
   }
+  // END: Butterfly History
+
+  // If this thread had no work, not even out of order, then sleep for some
+  // milliseconds. Collisions don't count as work.
+  const bool work_done = (number_out_of_order_ > 0) || (nodes_in_batch > 0);
   if (!work_done) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 }
 
 }  // namespace lczero
+
