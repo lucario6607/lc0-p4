@@ -1,3 +1,5 @@
+--- START OF FILE search (25).h ---
+
 /*
   This file is part of Leela Chess Zero.
   Copyright (C) 2018 The LCZero Authors
@@ -37,6 +39,7 @@
 #include <tuple>
 #include <vector>
 
+#include "chess/board.h"
 #include "chess/callbacks.h"
 #include "chess/uciloop.h"
 #include "mcts/node.h"
