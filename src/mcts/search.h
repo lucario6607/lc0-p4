@@ -579,4 +579,3 @@ class SearchWorker {
 };
 
 }  // namespace lczero
-
