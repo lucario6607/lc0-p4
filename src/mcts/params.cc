@@ -555,6 +555,18 @@ const OptionId SearchParams::kCorrectionHistoryAlphaId{
 const OptionId SearchParams::kCorrectionHistoryLambdaId{
     "correction-history-lambda", "CorrectionHistoryLambda",
     "Strength of correction history adjustment. [0,1]"};
+
+// START: Butterfly History
+const OptionId SearchParams::kUseButterflyHistoryId{
+    "use-butterfly-history", "UseButterflyHistory",
+    "Whether to use butterfly history to guide search."};
+const OptionId SearchParams::kButterflyHistoryWeightId{
+    "butterfly-history-weight", "ButterflyHistoryWeight",
+    "How much to scale the butterfly history score when adding it to PUCT."};
+const OptionId SearchParams::kButterflyHistoryAgeIntervalId{
+    "butterfly-history-age-interval", "ButterflyHistoryAgeInterval",
+    "Decay butterfly history scores every N nodes to adapt to the position."};
+// END: Butterfly History
 	
 
 void SearchParams::Populate(OptionsParser* options) {
@@ -700,7 +712,12 @@ void SearchParams::Populate(OptionsParser* options) {
 
 
 	
-
+  // START: Butterfly History
+  options->Add<BoolOption>(kUseButterflyHistoryId) = false;
+  options->Add<FloatOption>(kButterflyHistoryWeightId, 0.0f, 1.0f) = 0.0001f;
+  options->Add<IntOption>(kButterflyHistoryAgeIntervalId, 1000, 1000000) =
+      65536;
+  // END: Butterfly History
 
 
 
@@ -867,6 +884,13 @@ SearchParams::SearchParams(const OptionsDict& options)
 
 
       kEasyEvalWeightDecay(options.Get<float>(kEasyEvalWeightDecayId)),
-      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)) {}
+      kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)),
+      // START: Butterfly History
+      kUseButterflyHistory(options.Get<bool>(kUseButterflyHistoryId)),
+      kButterflyHistoryWeight(options.Get<float>(kButterflyHistoryWeightId)),
+      kButterflyHistoryAgeInterval(
+          options.Get<int>(kButterflyHistoryAgeIntervalId))
+// END: Butterfly History
+{}
 
 }  // namespace lczero
