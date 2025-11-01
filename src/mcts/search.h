@@ -68,16 +68,16 @@ class ButterflyHistory {
 
   // Retrieves the current history score for a given move.
   int32_t GetValue(int color, Move m) const {
-    return table_[color][static_cast<uint8_t>(m.from())]
-                       [static_cast<uint8_t>(m.to())]
+    return table_[color][static_cast<Square>(m.from())]
+                       [static_cast<Square>(m.to())]
                            .load(std::memory_order_relaxed);
   }
 
   // Updates the score for a move with a bonus based on the depth at which
   // it was found to be good. This operation is atomic.
   void Update(int color, Move m, int depth) {
-    auto& entry = table_[color][static_cast<uint8_t>(m.from())]
-                             [static_cast<uint8_t>(m.to())];
+    auto& entry = table_[color][static_cast<Square>(m.from())]
+                             [static_cast<Square>(m.to())];
     // Cap bonus from a single update to avoid extreme swings. depth^2 is used.
     constexpr int32_t kBonusLimit = 256;  // depth^2, so max depth ~16
     const int32_t bonus = std::min(depth * depth, kBonusLimit);
